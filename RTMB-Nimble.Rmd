@@ -1,0 +1,344 @@
+---
+title: "Methods using RTMB and Nimble in Fisheries"
+subtitle: "Pacific Stock Assessment Renewal Workshop Series"
+author: "Paul van Dam-Bates"
+institute: ""
+date: "September 2024"
+output:
+  xaringan::moon_reader:
+    css: ["xaringan-themer.css", "theme.css"]
+    lib_dir: libs
+    nature:
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+<!-- Build with: xaringan::inf_mr() -->
+
+```{r preamble, include=FALSE, cache=FALSE}
+xaringanthemer::style_mono_accent(
+  base_color = "#202020",
+  header_font_google = xaringanthemer::google_font("Raleway"),
+  text_font_google = xaringanthemer::google_font("Open Sans"),
+  code_font_google = xaringanthemer::google_font("Fira Mono"),
+  title_slide_background_size = "14%",
+  title_slide_background_position = "50% 90%",
+  base_font_size = "20px",
+  header_h1_font_size = "2.1rem",
+  text_font_size = "1.5rem",
+  code_font_size = "1.1rem",
+  link_color = "#0047AB"
+)
+knitr_opts <- list(
+  message = FALSE,
+  warning = FALSE,
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  dpi = 300,
+  out.width = "700px",
+  fig.asp = 1 / 1.618,
+  cache = TRUE,
+  autodep = TRUE,
+  cache.comments = TRUE,
+  fig.align = "center",
+  echo = FALSE,
+  results = 'hide'
+)
+do.call(knitr::opts_chunk$set, knitr_opts)
+```
+
+```{r libs, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(RTMB)
+options(ggplot2.continuous.colour = "viridis")
+options(ggplot2.continuous.fill = "viridis")
+ggplot2::theme_set(ggplot2::theme_minimal())
+```
+
+# Basic Example
+
+```{r, echo = TRUE}
+data(ChickWeight)
+```
+
+Consider chick weight data where $w$ = weight, $t$ = time, $k$ = chick, and $D$ = diet. 
+
+$$
+w_i = \beta_0 + \beta_t t_i + \beta_{D_i}+ \epsilon_i.
+$$
+
+In this case, 
+
+$$
+\epsilon_i \sim \text{normal}(\mu_i, \sigma^2),
+$$
+
+where $$\mu_i = \beta_0 + \beta_t t_i + \beta_{D_i} $$.
+
+---
+
+# Coding a factor
+
+1. Levels 2-4 are coded as level 1 (Intercept) + difference.
+
+```{r, echo = TRUE}
+  Design1 <- matrix(0, nrow = nrow(ChickWeight), ncol = 4)
+  Design1[cbind(1:nrow(ChickWeight), ChickWeight$Diet)] <- 1
+  Design1[,1] <- 1  ## All observations get Intercept.
+  Design1 <- cbind(Design1, ChickWeight$Time)
+```
+
+2. Each diet gets a different Intercept.
+
+```{r, echo = TRUE}
+  Design2 <- matrix(0, nrow = nrow(ChickWeight), ncol = 4)
+  Design2[cbind(1:nrow(ChickWeight), ChickWeight$Diet)] <- 1
+  Design2 <- cbind(Design2, ChickWeight$Time)
+```
+
+---
+
+# Constructing a log-likelihood
+
+- The probability density function for an observed weight is
+
+.xsmall[
+$$
+  f(w_i|\mathbf{\theta}) = \text{normal}(\mu_i, \sigma^2)
+$$
+]
+
+- The likelihood is then the product of $f$, over all $n$ observations,
+
+.xsmall[
+$$
+L(\mathbf{\theta}|\mathbf{w}) = \prod_{i=1}^n f(w_i|\mathbf{\theta}).
+$$
+]
+
+---
+
+# Constructing a log-likelihood
+
+- We work on the log-scale as probabilities become small and tend to underflow, creating numerical issues. This leads to the sum of the log of each observed density $f$,
+
+$$
+l(\mathbf{\theta}|\mathbf{w}) = log(L(\mathbf{\theta}|\mathbf{w})) = \sum_{i=1}^n log(f(w_i|\mathbf{\theta})).
+$$
+
+- Functions like `optim` or `nlminb` that do optimization in R seek to MINIMIZE the function as a default. For maximum likelihood estimation, we want to find the maximum of $l(\mathbf{\theta}|\mathbf{w})$, or the minimum of $-l(\mathbf{\theta}|\mathbf{w})$.
+
+---
+
+# Code the negative log-likelihood
+
+```{r, echo = TRUE}
+  ## Parameters are coefficients in the design matrix and variance sigma:
+  fn <- function(par){
+    beta <- par[1:ncol(X)]  ## X is Design Matrix
+    sigma <- exp(par[ncol(X)+1])  ## Is this necessary?
+    ## Do yourself...
+  }
+```
+
+```{r, echo = FALSE}
+  ## Parameters are coefficients in the design matrix and variance sigma:
+  fn <- function(par){
+    beta <- par[1:ncol(Design1)]  ## X is Design Matrix
+    sigma <- exp(par[ncol(Design1)+1])
+    mu <- Design1 %*% beta
+    sum(-dnorm(ChickWeight$weight, mu, sigma, log = TRUE))
+  }
+```
+```{r, echo = TRUE, results = "markup"}
+fit <- lm(weight ~ Diet + Time, data = ChickWeight)
+fit2 <- nlminb(c(rep(0, ncol(Design1)),0), fn)
+coef(fit) - fit2$par[1:ncol(Design1)]
+sigma(fit) - exp(fit2$par[ncol(Design1)+1])
+```
+
+---
+
+# Why RTMB
+
+- Speed - Makes R run in C++
+
+```{r, echo = TRUE, results="markup"}
+  library(RTMB)
+  pars <-  c(rep(0, ncol(Design1)),0)
+  obj <- MakeADFun(fn, pars, silent = TRUE)
+  microbenchmark::microbenchmark(
+      rtmb = obj$fn(pars),
+      baseR = fn(pars))
+```
+
+---
+
+# Why RTMB
+
+- Automatic Differentiation - Accurate!
+
+```{r}
+gr_true <- function(par){
+  beta <- par[1:ncol(Design1)]  ## X is Design Matrix
+  sigma <- exp(par[ncol(Design1)+1])
+  mu <- Design1 %*% beta
+  gr <- rep(0, length(par))
+  for( i in 1:length(beta)){
+      gr[i] <- sum(-1/sigma^2*(ChickWeight$weight-mu)*Design1[,i])
+  }
+  gr[i+1] <- -nrow(Design1) + sum((ChickWeight$weight-mu)^2*sigma^-2)
+  return(gr)
+}
+gr_true(fit2$par)
+```
+
+```{r, echo = TRUE, results="markup"}
+## Finite Difference vs AD
+gr_true(fit2$par) - pracma::jacobian(obj$fn, fit2$par)
+gr_true(fit2$par) - obj$gr(fit2$par)
+```
+
+---
+
+# Why RTMB
+
+- Automatic Differentiation - Accurate!
+- Automatic Differentiation - Fast!
+
+```{r, echo = TRUE, results="markup"}
+microbenchmark::microbenchmark(
+      rtmb = obj$gr(fit2$par),
+      baseR = pracma::jacobian(obj$fn, fit2$par))
+
+```
+
+---
+
+# Why do derviatives matter?
+
+1. Helps us find the maximum/minimum, when the gradient (vector of partial derivatives) is zero.
+1. The variance is defined by the inverse of the Hessian (of the negative log likelihood). Hessian is the derivative of the derivative.
+1. Finite difference methods are very slow and often inaccurate.
+1. Automatic differentiation can be faster than analytically defined gradients due to the building of a tape. The tape is an efficient set of rules for a chain rule where a lot of the algebra is pre-computed as constants (when building the tape).
+---
+
+# The Laplace Approximation
+
+- The Laplace approximation approximately integrates "normal looking" likelihood surfaces by a single point evaluation at the mode.
+- Consider the above Chick Weights problem with a random effect per chick.
+
+```{r, echo = TRUE, results="markup"}
+  library(glmmTMB)
+  fit.glmm <- glmmTMB(weight ~ Diet + Time + (1|Chick), data = ChickWeight)
+  fixef(fit.glmm)
+```
+---
+
+# New Log-Likelihood
+
+- Each random-effect, $u_k$ is assumed to be normally distributed with mean 0, and variance $\sigma_{re}^2$.
+
+- The contribution for the random-effects for $N$ chicks is then,
+
+.xsmall[
+$$
+f(\mathbf{u}|\boldsymbol{\theta}) = \prod_{k=1}^N f(u_k|\boldsymbol{\theta})
+$$
+]
+
+- The change in the log-likelihood happens to the expected value of each observation,
+
+$$\mu_i = \beta_0 + \beta_t t_i + \beta_{D_i} + u_{chick_i}$$
+
+
+---
+
+# New Log-Likelihood
+
+- The new likelihood is then
+
+.xsmall[
+$$L(\boldsymbol{\theta}|\mathbf{w},\mathbf{u}) = f(\mathbf{u}|\boldsymbol{\theta}) \prod_{i=1}^n f(w_i|u_{chick_i}, \boldsymbol{\theta}).$$
+]
+
+- The log-likelihood is defined as the sum over the log observed densities plus, the sum of the random effect densities,
+
+$$l(\boldsymbol{\theta}|\mathbf{w},\mathbf{u}) = \sum_{k=1}^N log(f(u_i|\boldsymbol{\theta})) + \sum_{k=i}^n log(f(w_i|u_{chick_i}, \boldsymbol{\theta})).$$
+
+---
+
+```{r, echo = TRUE}
+  pars.re <- list(beta = rep(0, ncol(Design1)),
+                  logsigma = 0, logsigmare = 0,
+                  re = rep(0, max(ChickWeight$Chick)))
+  ## Parameters are coefficients in the design matrix and variance sigma:
+  fn <- function(par){
+    getAll(par)
+    sigma <- exp(logsigma)
+    sigmare <- exp(logsigmare)
+    mu <- Design1 %*% beta + re[as.numeric(ChickWeight$Chick)]
+    ADREPORT(sigma)
+    ADREPORT(sigmare)
+    negll <- sum(-dnorm(ChickWeight$weight, mu, sigma, log = TRUE)) 
+    negll <- negll - sum(dnorm(re, 0, sigmare, log = TRUE))
+    negll
+  }
+  obj <- MakeADFun(fn, parameters=pars.re, silent = TRUE)
+  fit.re <- nlminb(obj$par, obj$fn, obj$gr)
+  sdreport(obj)
+```
+
+---
+
+# Laplace Continued
+
+- To actually make inference we need to marginalize out the $N$ unobserved random effects, $\mathbf{u}$.
+
+.xsmall[
+$$f(\mathbf{w}|\mathbf{\theta}) = \int_{-\infty}^\infty \cdots \int_{-\infty}^\infty f(\mathbf{w}| \mathbf{u}, \mathbf{\theta}) f(\mathbf{u} | \mathbf{\theta}) du_{1} \cdots d_{N}.$$
+]
+
+- This is an N dimensional integral, which in this particular case, can be written as $N$ single dimension integrals as each chick is independent.
+
+- Works well when this likelihood is unimodal (has one maximum) and looks roughly normal locally. Actually EXACT in the example.
+
+---
+
+# Laplace Continued
+
+- The Laplace approximation works by creating a Normal distribution that looks kind of like the posterior distribution of the random-effects we are integrating out,
+.xsmall[
+$$f_G(\mathbf{u}|\mathbf{w}, \mathbf{\theta}) \approx \text{Multivariate-Normal}(\widehat{\mathbf{u}}, H_{\widehat{u}}^{-1}).$$
+]
+
+- Then, evaluated at the mean,
+
+.xsmall[
+$$f_G(\widehat{\mathbf{u}} | \mathbf{w}, \mathbf{\theta}) = \frac{det(H_\widehat{u})^{0.5}}{(2\pi)^{N/2}}$$
+]
+
+- The Laplace approximation is then,
+
+.xsmall[
+$$f(\mathbf{w}|\mathbf{\theta}) \approx  f(\mathbf{w}| \mathbf{u}, \mathbf{\theta}) f(\mathbf{u} | \mathbf{\theta})/ f_G(\widehat{\mathbf{u}} | \mathbf{w}, \mathbf{\theta})$$
+]
+
+---
+
+# Laplace Continued
+
+- The recipe is for Laplace is then to find $\widehat{\mathbf{u}}$ for some value of $\boldsymbol{\theta}$, and then find the Hessian $H_{\widehat{u}}$ and calculate,
+
+$$l(\boldsymbol{\theta}|\mathbf{w}) \approx - \frac{N}{2}log(2\pi) +  log(det(H_{\widehat{u}})) + l(\boldsymbol{\theta}|\mathbf{w},\widehat{\mathbf{u}})$$
+
+- Let's do it in RTMB now manually.
+
+---
+
+# RTMB Laplace
+
+- Start here next.
+
