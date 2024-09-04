@@ -10,4 +10,5 @@ unnamed-chunk-8	gr_true
 unnamed-chunk-9	
 unnamed-chunk-10	
 unnamed-chunk-11	fit.glmm
-unnamed-chunk-12	fit.re	fn	obj	pars.re
+unnamed-chunk-12	ChickWeight	fit.re	fn	obj	pars.re
+unnamed-chunk-13	fit.re.only	laplace_approx	nre	obj.laplace	obj.re

@@ -65,17 +65,19 @@ data(ChickWeight)
 
 Consider chick weight data where $w$ = weight, $t$ = time, $k$ = chick, and $D$ = diet. 
 
-$$
-w_i = \beta_0 + \beta_t t_i + \beta_{D_i}+ \epsilon_i.
-$$
+$$w_i = \beta_0 + \beta_t t_i + \beta_{D_i}+ \epsilon_i.$$
 
 In this case, 
 
-$$
-\epsilon_i \sim \text{normal}(\mu_i, \sigma^2),
-$$
+.xsmall[
+$$\epsilon_i \sim \text{normal}(\mu_i, \sigma^2),$$
+]
 
-where $$\mu_i = \beta_0 + \beta_t t_i + \beta_{D_i} $$.
+where 
+
+.xsmall[
+$$\mu_i = \beta_0 + \beta_t t_i + \beta_{D_i}.$$
+]
 
 ---
 
@@ -110,7 +112,7 @@ $$
 $$
 ]
 
-- The likelihood is then the product of $f$, over all $n$ observations,
+- The likelihood is then the product of the densities, $f(\cdot)$, over all $n$ observations,
 
 .xsmall[
 $$
@@ -271,9 +273,10 @@ $$l(\boldsymbol{\theta}|\mathbf{w},\mathbf{u}) = \sum_{k=1}^N log(f(u_i|\boldsym
 ---
 
 ```{r, echo = TRUE}
+  ChickWeight$chick <- as.integer(as.character(ChickWeight$Chick))
   pars.re <- list(beta = rep(0, ncol(Design1)),
                   logsigma = 0, logsigmare = 0,
-                  re = rep(0, max(ChickWeight$Chick)))
+                  re = rep(0, max(ChickWeight$chick)))
   ## Parameters are coefficients in the design matrix and variance sigma:
   fn <- function(par){
     getAll(par)
@@ -332,7 +335,7 @@ $$f(\mathbf{w}|\mathbf{\theta}) \approx  f(\mathbf{w}| \mathbf{u}, \mathbf{\thet
 
 - The recipe is for Laplace is then to find $\widehat{\mathbf{u}}$ for some value of $\boldsymbol{\theta}$, and then find the Hessian $H_{\widehat{u}}$ and calculate,
 
-$$l(\boldsymbol{\theta}|\mathbf{w}) \approx - \frac{N}{2}log(2\pi) +  log(det(H_{\widehat{u}})) + l(\boldsymbol{\theta}|\mathbf{w},\widehat{\mathbf{u}})$$
+$$l(\boldsymbol{\theta}|\mathbf{w}) \approx \frac{N}{2}log(2\pi) - log(det(H_{\widehat{u}})) + l(\boldsymbol{\theta}|\mathbf{w},\widehat{\mathbf{u}})$$
 
 - Let's do it in RTMB now manually.
 
@@ -340,5 +343,28 @@ $$l(\boldsymbol{\theta}|\mathbf{w}) \approx - \frac{N}{2}log(2\pi) +  log(det(H_
 
 # RTMB Laplace
 
-- Start here next.
+```{r, echo = TRUE}
+  nre <- max(ChickWeight$chick)
+  obj.re <- MakeADFun(fn, parameters = pars.re, silent = TRUE, 
+      map = list(beta = factor(rep(NA, ncol(Design1))), 
+        logsigma = factor(NA), 
+        logsigmare = factor(NA)))
+  fit.re.only <- nlminb(obj.re$par, obj.re$fn, obj.re$gr)
+  
+  laplace_approx <- -nre*log(2*pi) + 
+      log(det(obj.re$he(fit.re.only$par))) +   obj.re$fn(fit.re.only$par)
+  
+  obj.laplace <- MakeADFun(fn, parameters = pars.re, 
+                            silent = TRUE, random = "re")
+  obj.laplace$fn(obj.laplace$par) - laplace_approx
+  obj.laplace$env$last.par[-(1:(ncol(Design1)+2))] - fit.re.only$par
+```
+
+# RTMB Laplace
+
+```{r, echo = TRUE}
+
+  fit.laplace <- nlminb(obj.laplace$par, obj.laplace$fn, obj.laplace$gr)
+  fit.laplace$par[1:ncol(Design1)] - fixef(fit.glmm)[[1]] ## Matched it.
+```
 
