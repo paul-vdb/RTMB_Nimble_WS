@@ -12,3 +12,6 @@ unnamed-chunk-10
 unnamed-chunk-11	fit.glmm
 unnamed-chunk-12	ChickWeight	fit.re	fn	obj	pars.re
 unnamed-chunk-13	fit.re.only	laplace_approx	nre	obj.laplace	obj.re
+unnamed-chunk-14	fit.laplace
+unnamed-chunk-15	fit.harck	harck
+unnamed-chunk-16	fn

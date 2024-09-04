@@ -57,6 +57,10 @@ options(ggplot2.continuous.fill = "viridis")
 ggplot2::theme_set(ggplot2::theme_minimal())
 ```
 
+# Part I: Introduction to RTMB
+
+---
+
 # Basic Example
 
 ```{r, echo = TRUE}
@@ -360,11 +364,62 @@ $$l(\boldsymbol{\theta}|\mathbf{w}) \approx \frac{N}{2}log(2\pi) - log(det(H_{\w
   obj.laplace$env$last.par[-(1:(ncol(Design1)+2))] - fit.re.only$par
 ```
 
+---
+
 # RTMB Laplace
 
-```{r, echo = TRUE}
+```{r, echo = TRUE, show = 'markup'}
 
   fit.laplace <- nlminb(obj.laplace$par, obj.laplace$fn, obj.laplace$gr)
   fit.laplace$par[1:ncol(Design1)] - fixef(fit.glmm)[[1]] ## Matched it.
 ```
 
+---
+
+# Exercises
+
+Choose one of:
+
+1. Write a general RTMB function that does Laplace manually.
+1. Find an example where you don't think Laplace will work well.
+
+---
+
+# Part II: Stock-Recruit Example
+
+---
+
+# Ricker Curve
+
+- Consider a Ricker stock recruit relationship for salmon, where $R_t$ is recruitment from year $t$ spawners $S_t$,
+
+$$R_t = \alpha S_t e^{-\beta S_t}$$
+- As a linear equation,
+$$log(R_t/S_t) = log(\alpha) - \beta S_t$$
+
+- Install `samEst` from https://github.com/Pacific-salmon-assess/samEst/tree/main
+- We will use `data(harck)` from the samest package for this section.
+
+---
+
+# The Basic Linear Model
+
+- Code a linear model for the Harrison Chinook stock-recruitment data using RTMB (assuming Gaussian error structure for log(R/S)).
+- Can you get the same results at `glmmTMB`?
+
+```{r, echo = TRUE, show= 'markup'} 
+  library(samEst)
+  data(harck)
+  fit.harck <- glmmTMB(logRS ~ S, data=harck)
+  summary(fit.harck)
+```
+
+---
+
+```{r}
+  fn <- function(par){
+    getAll(par)
+    beta <- exp(logbeta)
+    sigma <- exp(logsigma)
+  }
+```

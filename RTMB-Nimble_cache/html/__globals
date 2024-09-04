@@ -12,3 +12,6 @@ unnamed-chunk-10	$	::	fit2	obj
 unnamed-chunk-11	~	ChickWeight	fixef	glmmTMB	library
 unnamed-chunk-12	$	$<-	ADREPORT	as.character	as.integer	as.numeric	beta	Design1	dnorm	exp	getAll	list	logsigma	logsigmare	MakeADFun	max	ncol	nlminb	re	rep	sdreport	sum
 unnamed-chunk-13	$	ChickWeight	Design1	det	factor	fn	list	log	MakeADFun	max	ncol	nlminb	pars.re	pi	rep
+unnamed-chunk-14	$	[[	Design1	fit.glmm	fixef	ncol	nlminb	obj.laplace
+unnamed-chunk-15	~	data	glmmTMB	harck	library	summary
+unnamed-chunk-16	exp	getAll	logbeta	logsigma
