@@ -14,4 +14,9 @@ unnamed-chunk-12	$	$<-	ADREPORT	as.character	as.integer	as.numeric	beta	Design1	
 unnamed-chunk-13	$	ChickWeight	Design1	det	factor	fn	list	log	MakeADFun	max	ncol	nlminb	pars.re	pi	rep
 unnamed-chunk-14	$	[[	Design1	fit.glmm	fixef	ncol	nlminb	obj.laplace
 unnamed-chunk-15	~	data	glmmTMB	harck	library	summary
-unnamed-chunk-16	exp	getAll	logbeta	logsigma
+unnamed-chunk-16	$	ADREPORT	dnorm	exp	getAll	harck	list	logalpha	logbeta	logRS	logsigma	MakeADFun	nlminb	return	S	sdreport	sum	summary
+unnamed-chunk-17	$	diag	fit	obj	sdrep	solve	sqrt	summary
+unnamed-chunk-18	$	c	diag	exp	fit	sdrep	sqrt	summary	t	V
+unnamed-chunk-19	!	&	:::	<	<=	==	abs	exp	if	log	return	sqrt	while
+unnamed-chunk-20	$	[<-	^	ADjoint	c	dnorm	length	MakeTape	numeric	rnorm	sum
+unnamed-chunk-21	$	.GlobalEnv	advector	DataEval	dnorm	list	MakeADFun	nlminb	rep	rnorm	sum

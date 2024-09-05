@@ -405,7 +405,7 @@ $$log(R_t/S_t) = log(\alpha) - \beta S_t$$
 # The Basic Linear Model
 
 - Code a linear model for the Harrison Chinook stock-recruitment data using RTMB (assuming Gaussian error structure for log(R/S)).
-- Can you get the same results at `glmmTMB`?
+- Can you get the same results as `glmmTMB`?
 
 ```{r, echo = TRUE, show= 'markup'} 
   library(samEst)
@@ -416,10 +416,202 @@ $$log(R_t/S_t) = log(\alpha) - \beta S_t$$
 
 ---
 
-```{r}
+## One Version
+
+```{r, echo = TRUE}
   fn <- function(par){
-    getAll(par)
+    getAll(par, harck)
     beta <- exp(logbeta)
     sigma <- exp(logsigma)
+
+    Expected_logRS <- logalpha - beta*S
+    negll <- -sum(dnorm(logRS, mean = Expected_logRS, sd = sigma, log = TRUE))
+    ADREPORT(sigma)
+    alpha <- exp(logalpha)
+    ADREPORT(alpha)
+    ADREPORT(beta)
+    return(negll)
   }
+
+  pars <- list(logalpha = 0, logbeta = 0, logsigma = 0)
+  obj <- MakeADFun(fn, pars, silent = TRUE)
+  fit <- nlminb(obj$par, obj$fn, obj$gr)
+  sdrep <- sdreport(obj)  ## All the values
+  summary(sdrep, "fixed", p.value = TRUE)  
+  summary(sdrep, "report", p.value = TRUE)
 ```
+---
+
+# Understanding Variance
+
+- Variance for the parameters being optimized can be written based on the Hessian,
+
+.xsmall[
+$$V(\boldsymbol{\theta}) = H_\theta^{-1}.$$
+]
+
+- For a single term, $V(log(\alpha)) = V(\boldsymbol{\theta})_{1,1}$.
+- Example,
+
+```{r, echo = TRUE, show = 'markup'}
+H <- obj$he(fit$par)
+V <- solve(H)
+sqrt(diag(V)) - summary(sdrep, "fixed")[,2]
+```
+---
+
+# Understanding Variance
+
+- What about the transformed variables? RTMB uses the Delta method,
+
+.xsmall[
+$$V(g(\theta)) \approx \nabla g V(\theta) \nabla g'$$
+]
+
+```{r, echo = TRUE, show = 'markup'}
+  grad <- exp(fit$par)
+  Vg <- t(grad %*% V) %*% grad
+  sqrt(diag(Vg)) - summary(sdrep, "report")[c("alpha", "beta", "sigma"),2]
+```
+- By now it should be really clear that if we can write fast code that efficiently returns derivatives, inference is pretty easy.
+
+---
+
+# Excersizes
+
+- Write an auto regressive process for the `harck` data in RTMB.
+- Calculate and generate confidence intervals for maximum sustainable yield ( $S_{msy}$ ) and for the number of spawners needed to return to $S_{msy}$ in one generation, $S_{gen}$ .
+
+
+- Example: https://github.com/Pacific-salmon-assess/samEst/blob/main/R/LamW_RTMB.r
+
+```{r}
+FritschIter <- function(x, w){
+  MaxEval <- 5
+  CONVERGED <- FALSE
+  k <- 2.0 / 3.0;
+  i <- 0;
+  eps <- 2.2204460492503131e-16    
+  while (!CONVERGED & i < MaxEval){
+    z <- log(x / w) - w
+    w1 <- w + 1.0
+    q <- 2.0 * w1 * (w1 + k * z)
+    qmz <- q - z
+    e <- z / w1 * qmz / (qmz - z)
+    CONVERGED <- abs(e) <= eps
+    w <- w*(1.0 + e)
+    i <- i + 1
+  }
+  return(w)
+}
+LambertW0_internal <- function(x){
+  check <- 0.367879441171442334024277442949824035167694091796875 # exp(-1)
+  eps <- 2.2204460492503131e-16
+  if (x == Inf) {
+    return(Inf);
+  } else if (x < -check) {
+    return(NaN);
+  } else if (abs(x - check) <= eps) {
+    return(-1.0);
+  } else if (abs(x) <= 1e-16) {
+    ## This close to 0 the W_0 branch is best estimated by its Taylor/Pade
+    ## expansion whose first term is the value x and remaining terms are below
+    ## machine double precision. See
+    ## https://math.stackexchange.com/questions/1700919
+
+    return(x);
+  } else {
+    w <- 0
+    if (abs(x) <= 6.4e-3) {
+      ## When this close to 0 the Fritsch iteration may underflow. Instead,
+      ## function will use degree-6 minimax polynomial approximation of Halley
+      ## iteration-based values. Should be more accurate by three orders of
+      ## magnitude than Fritsch's equation (5) in this range.
+      return((((((-1.0805085529250425e1 * x + 5.2100070265741278) * x -
+             2.6666665063383532) * x + 1.4999999657268301) * x -
+             1.0000000000016802) * x + 1.0000000000001752) * x +
+             2.6020852139652106e-18);
+
+    } else if (x <= exp(1)) {
+      ## Use expansion in Corliss 4.22 to create (2, 2) Pade approximant.
+      ## Equation with a few extra terms is:
+      ## -1 + p - 1/3p^2 + 11/72p^3 - 43/540p^4 + 689453/8398080p^4 - O(p^5)
+      ## This is just used to estimate a good starting point for the Fritsch
+      ## iteration process itself.
+      
+      p <- sqrt(2.0 * (exp(1) * x + 1.0))
+      Numer <- (0.2787037037037037 * p + 0.311111111111111) * p - 1.0;
+      Denom <- (0.0768518518518518 * p + 0.688888888888889) * p + 1.0;
+      w <- Numer / Denom;
+    } else {
+      ## Use first five terms of Corliss et al. 4.19 */
+      w <- log(x)
+      L_2 <- log(w)
+      L_3 <- L_2 / w
+      L_3_sq <- L_3 * L_3
+      w <- w - L_2 + L_3 + 0.5 * L_3_sq - L_3 / w + L_3 / (w * w) - 1.5 * L_3_sq /
+        w + L_3_sq * L_3 / 3.0;
+    }
+    return(FritschIter(x, w));
+  }
+}
+
+dLambertW0_internal <- function(x, y, dy) {
+  dy / (exp(y) * (1. + y))
+}
+
+LambertW0 <- RTMB:::ADjoint(LambertW0_internal, dLambertW0_internal)
+```
+
+---
+
+# RTMB Tricks - ADJoint
+
+- If you know the derivative then you can use it instead of AD.
+
+```{r, echo = TRUE}
+x <- rnorm(100, 0.25, 0.1)
+myneg_dnorm <- function(theta){
+  sum(-dnorm(x, theta[1], theta[2], log = TRUE))
+}
+gr_myneg_dnorm <- function(theta, f, df) {
+  deriv <- numeric(2)
+  deriv[1] <- -sum(x-theta[1])/theta[2]^2
+  deriv[2] <- length(x)/theta[2] - sum((x-theta[1])^2)/theta[2]^3
+  df * deriv ## Not sure if I need the df...
+}
+test <- ADjoint(myneg_dnorm, gr_myneg_dnorm )
+grtest <- MakeTape(test, c(0,1))
+fad <- MakeTape(myneg_dnorm, c(0,1))
+fad$jacobian(c(0,1)) - grtest$jacobian(c(0,1))
+```
+
+
+---
+
+# RTMB Tricks - Update Data
+
+- Update data without running MakeADFun again.
+
+```{r, echo = TRUE}
+f <- function(p) {
+    getDat <- function(x) {
+        .GlobalEnv$mydat
+    }
+    empty <- advector(rep(0, 0)) ## Important this is empty but ad variable...
+    ## Add R function to the AD tape
+    y <- DataEval(getDat, empty)
+    -sum(dnorm(y, p$mu, p$sd, log=TRUE))
+}
+mydat <- rnorm(10000, 0, 10)
+obj <- MakeADFun(f, list(mu=0, sd=1), silent = TRUE)
+fit1 <- nlminb(obj$par, obj$fn, obj$gr)
+mydat <- rnorm(10000, 10, 1)
+fit2 <- nlminb(obj$par, obj$fn, obj$gr)
+fit1$par
+fit2$par
+```
+
+---
+
+# Now for Nimble...

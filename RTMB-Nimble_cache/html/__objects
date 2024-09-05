@@ -14,4 +14,9 @@ unnamed-chunk-12	ChickWeight	fit.re	fn	obj	pars.re
 unnamed-chunk-13	fit.re.only	laplace_approx	nre	obj.laplace	obj.re
 unnamed-chunk-14	fit.laplace
 unnamed-chunk-15	fit.harck	harck
-unnamed-chunk-16	fn
+unnamed-chunk-16	fit	fn	obj	pars	sdrep
+unnamed-chunk-17	H	V
+unnamed-chunk-18	grad	Vg
+unnamed-chunk-19	dLambertW0_internal	FritschIter	LambertW0	LambertW0_internal
+unnamed-chunk-20	fad	gr_myneg_dnorm	grtest	myneg_dnorm	test	x
+unnamed-chunk-21	f	fit1	fit2	mydat	obj

@@ -158,8 +158,8 @@ sigma(fit) - exp(fit2$par[ncol(Design1)+1])
       baseR = fn(pars))
 #&gt; Unit: microseconds
 #&gt;   expr  min   lq   mean median   uq   max neval cld
-#&gt;   rtmb  5.5  5.8  7.965    6.1  6.5 110.7   100  a 
-#&gt;  baseR 28.0 28.3 31.660   28.4 29.3  87.4   100   b
+#&gt;   rtmb  5.4  5.7  7.100    5.9  6.1 106.9   100  a 
+#&gt;  baseR 27.8 28.2 31.076   28.4 29.2 145.1   100   b
 ```
 
 ---
@@ -198,9 +198,9 @@ microbenchmark::microbenchmark(
       rtmb = obj$gr(fit2$par),
       baseR = pracma::jacobian(obj$fn, fit2$par))
 #&gt; Unit: microseconds
-#&gt;   expr   min    lq    mean median     uq   max neval cld
-#&gt;   rtmb  24.9  29.8  37.270  35.65  40.70 102.1   100  a 
-#&gt;  baseR 189.3 201.4 221.891 220.65 231.15 343.4   100   b
+#&gt;   expr   min     lq    mean median    uq   max neval cld
+#&gt;   rtmb  26.0  28.75  36.571  36.55  38.8 116.5   100  a 
+#&gt;  baseR 193.4 203.95 224.646 209.95 216.7 666.1   100   b
 ```
 
 ---
@@ -395,7 +395,7 @@ Choose one of:
 # The Basic Linear Model
 
 - Code a linear model for the Harrison Chinook stock-recruitment data using RTMB (assuming Gaussian error structure for log(R/S)).
-- Can you get the same results at `glmmTMB`?
+- Can you get the same results as `glmmTMB`?
 
 
 ```r
@@ -407,7 +407,130 @@ Choose one of:
 
 ---
 
+## One Version
 
+
+```r
+  fn &lt;- function(par){
+    getAll(par, harck)
+    beta &lt;- exp(logbeta)
+    sigma &lt;- exp(logsigma)
+
+    Expected_logRS &lt;- logalpha - beta*S
+    negll &lt;- -sum(dnorm(logRS, mean = Expected_logRS, sd = sigma, log = TRUE))
+    ADREPORT(sigma)
+    alpha &lt;- exp(logalpha)
+    ADREPORT(alpha)
+    ADREPORT(beta)
+    return(negll)
+  }
+
+  pars &lt;- list(logalpha = 0, logbeta = 0, logsigma = 0)
+  obj &lt;- MakeADFun(fn, pars, silent = TRUE)
+  fit &lt;- nlminb(obj$par, obj$fn, obj$gr)
+  sdrep &lt;- sdreport(obj)  ## All the values
+  summary(sdrep, "fixed", p.value = TRUE)  
+  summary(sdrep, "report", p.value = TRUE)
+```
+---
+
+# Understanding Variance
+
+- Variance for the parameters being optimized can be written based on the Hessian,
+
+.xsmall[
+`$$V(\boldsymbol{\theta}) = H_\theta^{-1}.$$`
+]
+
+- For a single term, `\(V(log(\alpha)) = V(\boldsymbol{\theta})_{1,1}\)`.
+- Example,
+
+
+```r
+H &lt;- obj$he(fit$par)
+V &lt;- solve(H)
+sqrt(diag(V)) - summary(sdrep, "fixed")[,2]
+```
+---
+
+# Understanding Variance
+
+- What about the transformed variables? RTMB uses the Delta method,
+
+.xsmall[
+`$$V(g(\theta)) \approx \nabla g V(\theta) \nabla g'$$`
+]
+
+
+```r
+  grad &lt;- exp(fit$par)
+  Vg &lt;- t(grad %*% V) %*% grad
+  sqrt(diag(Vg)) - summary(sdrep, "report")[c("alpha", "beta", "sigma"),2]
+```
+- By now it should be really clear that if we can write fast code that efficiently returns derivatives, inference is pretty easy.
+
+---
+
+# Excersizes
+
+- Write an auto regressive process for the `harck` data in RTMB.
+- Calculate and generate confidence intervals for maximum sustainable yield ( `\(S_{msy}\)` ) and for the number of spawners needed to return to `\(S_{msy}\)` in one generation, `\(S_{gen}\)` .
+
+
+- Example: https://github.com/Pacific-salmon-assess/samEst/blob/main/R/LamW_RTMB.r
+
+
+
+---
+
+# RTMB Tricks - ADJoint
+
+- If you know the derivative then you can use it instead of AD.
+
+
+```r
+x &lt;- rnorm(100, 0.25, 0.1)
+myneg_dnorm &lt;- function(theta){
+  sum(-dnorm(x, theta[1], theta[2], log = TRUE))
+}
+gr_myneg_dnorm &lt;- function(theta, f, df) {
+  deriv &lt;- numeric(2)
+  deriv[1] &lt;- -sum(x-theta[1])/theta[2]^2
+  deriv[2] &lt;- length(x)/theta[2] - sum((x-theta[1])^2)/theta[2]^3
+  df *  deriv ## Not sure if I need the df...
+}
+test &lt;- ADjoint(myneg_dnorm, gr_myneg_dnorm )
+grtest &lt;- MakeTape(test, c(0,1))
+fad &lt;- MakeTape(myneg_dnorm, c(0,1))
+fad$jacobian(c(0,1)) - grtest$jacobian(c(0,1))
+```
+
+
+---
+
+# RTMB Tricks - Update Data
+
+- Update data without running MakeADFun again.
+
+
+```r
+f &lt;- function(p) {
+    getDat &lt;- function(x) {
+        .GlobalEnv$mydat
+    }
+    empty &lt;- advector(rep(0, 0)) ## Important this is empty but ad variable...
+    ## Add R function to the AD tape
+    y &lt;- DataEval(getDat, empty)
+    -sum(dnorm(y, p$mu, p$sd, log=TRUE))
+}
+mydat &lt;- rnorm(10000, 0, 10)
+obj &lt;- MakeADFun(f, list(mu=0, sd=1), silent = TRUE)
+fit1 &lt;- nlminb(obj$par, obj$fn, obj$gr)
+mydat &lt;- rnorm(10000, 10, 1)
+fit2 &lt;- nlminb(obj$par, obj$fn, obj$gr)
+fit1$par
+fit2$par
+```
     </textarea>
 <style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
 <script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
