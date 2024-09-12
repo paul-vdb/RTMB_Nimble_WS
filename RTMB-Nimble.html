@@ -497,7 +497,7 @@ gr_myneg_dnorm &lt;- function(theta, f, df) {
   deriv &lt;- numeric(2)
   deriv[1] &lt;- -sum(x-theta[1])/theta[2]^2
   deriv[2] &lt;- length(x)/theta[2] - sum((x-theta[1])^2)/theta[2]^3
-  df *  deriv ## Not sure if I need the df...
+  df * deriv ## Not sure if I need the df...
 }
 test &lt;- ADjoint(myneg_dnorm, gr_myneg_dnorm )
 grtest &lt;- MakeTape(test, c(0,1))
@@ -531,6 +531,10 @@ fit2 &lt;- nlminb(obj$par, obj$fn, obj$gr)
 fit1$par
 fit2$par
 ```
+
+---
+
+# Now for Nimble...
     </textarea>
 <style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
 <script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>

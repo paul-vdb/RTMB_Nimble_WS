@@ -1,0 +1,28 @@
+libs	::	library	options
+unnamed-chunk-1	data
+unnamed-chunk-2	$	[<-	cbind	ChickWeight	matrix	nrow
+unnamed-chunk-3	$	[<-	cbind	ChickWeight	matrix	nrow
+unnamed-chunk-4	exp	ncol	X
+unnamed-chunk-5	$	ChickWeight	Design1	dnorm	exp	ncol	sum
+unnamed-chunk-6	$	~	c	ChickWeight	coef	Design1	exp	fn	lm	ncol	nlminb	nrow	rep	sigma
+unnamed-chunk-7	$	::	c	Design1	fn	library	MakeADFun	ncol	rep
+unnamed-chunk-8	$	[<-	^	ChickWeight	Design1	exp	fit2	for	length	ncol	nrow	rep	return	sum
+unnamed-chunk-9	$	::	fit2	gr_true	obj
+unnamed-chunk-10	$	::	fit2	obj
+unnamed-chunk-11	$	abs	c	det	dnorm	for	log	MakeTape	plot	return	seq	seq_along
+unnamed-chunk-12	~	ChickWeight	fixef	glmmTMB	library
+unnamed-chunk-13	$	$<-	ADREPORT	as.character	as.integer	as.numeric	beta	Design1	dnorm	exp	getAll	list	logsigma	logsigmare	MakeADFun	max	ncol	nlminb	re	rep	sdreport	sum
+unnamed-chunk-14	$	ChickWeight	Design1	det	factor	fn	list	log	MakeADFun	max	ncol	nlminb	pars.re	pi	rep
+unnamed-chunk-15	$	[[	Design1	fit.glmm	fixef	ncol	nlminb	obj.laplace
+unnamed-chunk-16	~	data	glmmTMB	harck	library	summary
+unnamed-chunk-17	$	ADREPORT	dnorm	exp	getAll	harck	list	logalpha	logbeta	logRS	logsigma	MakeADFun	nlminb	return	S	sdreport	sum	summary
+unnamed-chunk-18	$	diag	fit	obj	sdrep	solve	sqrt	summary
+unnamed-chunk-19	$	c	diag	exp	fit	sdrep	sqrt	summary	t	V
+unnamed-chunk-20	!	&	:::	<	<=	==	abs	exp	if	log	return	sqrt	while
+unnamed-chunk-21	$	[<-	^	ADjoint	c	dnorm	length	MakeTape	numeric	rnorm	sum
+unnamed-chunk-22	$	.GlobalEnv	advector	DataEval	dnorm	list	MakeADFun	nlminb	rep	rnorm	sum
+unnamed-chunk-23	dunif
+unnamed-chunk-24	$	abs	c	density	exp	for	lines	log	MakeTape	plot	runif	seq
+unnamed-chunk-25	c	dgamma	MakeTape
+unnamed-chunk-26	$	::	exp	MakeTape	plot	requireNamespace
+unnamed-chunk-27	$	::	[<-	as.matrix	c	colnames<-	dnorm	do.call	exp	for	getAll	harck	LambertW0	length	library	list	log	logalpha	logbeta	logRS	logsigma	MakeADFun	matrix	names	nlminb	nrow	REPORT	return	S	seq_along	sum	summary	tmbstan

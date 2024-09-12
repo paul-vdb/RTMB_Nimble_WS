@@ -1,0 +1,28 @@
+libs	
+unnamed-chunk-1	ChickWeight
+unnamed-chunk-2	Design1
+unnamed-chunk-3	Design2
+unnamed-chunk-4	fn
+unnamed-chunk-5	fn
+unnamed-chunk-6	biascorrection	fit	fit2
+unnamed-chunk-7	obj	pars
+unnamed-chunk-8	gr_true
+unnamed-chunk-9	
+unnamed-chunk-10	
+unnamed-chunk-11	dlogitnorm	dlognorm	logittransform	logtransform	p	y
+unnamed-chunk-12	fit.glmm
+unnamed-chunk-13	ChickWeight	fit.re	fn	obj	pars.re
+unnamed-chunk-14	fit.re.only	laplace_approx	nre	obj.laplace	obj.re
+unnamed-chunk-15	fit.laplace
+unnamed-chunk-16	fit.harck	harck
+unnamed-chunk-17	fit	fn	obj	pars	sdrep
+unnamed-chunk-18	H	V
+unnamed-chunk-19	grad	Vg
+unnamed-chunk-20	dLambertW0_internal	FritschIter	LambertW0	LambertW0_internal
+unnamed-chunk-21	fad	gr_myneg_dnorm	grtest	myneg_dnorm	test	x
+unnamed-chunk-22	f	fit1	fit2	mydat	obj
+unnamed-chunk-23	fn
+unnamed-chunk-24	f	i	transilogit	u
+unnamed-chunk-25	attempt2	func
+unnamed-chunk-26	func	G	test
+unnamed-chunk-27	fit.map	fit.stan	fn	i	obj	post	post.report	report
