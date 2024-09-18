@@ -11,7 +11,7 @@
 
 <meta name="author" content="Paul van Dam-Bates" />
 
-<meta name="date" content="2024-09-12" />
+<meta name="date" content="2024-09-17" />
 
 <title>Introduction to Nimble</title>
 
@@ -353,7 +353,7 @@ display: none;
 <h1 class="title toc-ignore">Introduction to Nimble</h1>
 <h3 class="subtitle">Pacific Stock Assessment Renewal</h3>
 <h4 class="author">Paul van Dam-Bates</h4>
-<h4 class="date">2024-09-12</h4>
+<h4 class="date">2024-09-17</h4>
 
 </div>
 
@@ -442,6 +442,26 @@ to its hierarchical structure. We have helper functions like
 depend on a single parameter. So if we are doing maximization on
 <code>sigma</code>, then we will want to find all the data that depend
 on <code>sigma</code>.</p>
+<pre class="r"><code>## What are all the nodes in the model:
+head(cmodel$getNodeNames())
+
+## what nodes depend on just the data?
+nodes &lt;- cmodel$getDependencies(&quot;sigma&quot;, self = FALSE)
+nodes[1:5]
+## Can access any individual probability in the model:
+cmodel$getLogProb(nodes[1]) - 
+  dnorm(values(cmodel, nodes[1]), mean = cmodel$mu[1], sd = cmodel$sigma, log = TRUE)
+
+## Access all the data probabilities:
+head(cmodel$logProb_w)
+
+## Get the &quot;current&quot; log probability of a node:
+cmodel$getLogProb(&quot;sigma&quot;)
+
+## We can access current model values via getLogProb, or if we have updated something, we need to run &#39;calculate&#39;.
+cmodel$sigma &lt;- 3
+cmodel$getLogProb(&quot;w[1]&quot;)
+cmodel$calculate(&quot;w[1]&quot;)</code></pre>
 <p>Knowing node structure and how to use <code>calculate</code> is part
 of how Nimble can be super efficient. Instead of calling an entire
 objective function defined in model code, we can just call pieces of it
@@ -463,12 +483,181 @@ want to be able to use either in run code or separately. They are built
 in a <code>list()</code>.</p></li>
 </ol>
 <p>In the example we will not use <code>run</code>.</p>
+<pre class="r"><code>## Now let&#39;s build the likelihood using a Nimble Function:
+fn &lt;- nimbleFunction(
+  setup = function(model, paramNodes){    ## Executed purely in R before compilation.
+    ## Clean up node names.
+    paramNodes &lt;- model$expandNodeNames(paramNodes)
+    ## Get the log likelihood nodes.
+    calcNodes &lt;- model$getDependencies(paramNodes, self = FALSE)
+    
+    # Set up the additional arguments for nimDerivs involving model$calculate
+    derivsInfo &lt;- makeModelDerivsInfo(model, paramNodes, calcNodes)
+    updateNodes &lt;- derivsInfo$updateNodes
+    constantNodes &lt;- derivsInfo$constantNodes
+    
+    # Create a parameter transformation between original and unconstrained
+    # parameter spaces.
+    transformer &lt;- parameterTransform(model, paramNodes)
+  },
+  #run = function(){},
+  methods = list(
+    neg_logLikelihood = function(ptrans = double(1)) {
+      # Objective function for optim,
+      # using transformed parameter space.
+      p &lt;- transformer$inverseTransform(ptrans)
+      values(model, paramNodes) &lt;&lt;- p
+      return(-model$calculate(calcNodes))
+      returnType(double())
+    },
+    gr_neg_logLikelihood = function(ptrans = double(1)) {
+      # Gradient of neg log likelihood
+      d &lt;- derivs(neg_logLikelihood(ptrans), wrt = 1:length(ptrans), order = 1,
+                  model = model, updateNodes = updateNodes,
+                  constantNodes = constantNodes)
+      return(d$jacobian[1,])
+      returnType(double(1))
+    },
+    inverse = function(ptrans = double(1)) { # ... and its inverse.
+      return(transformer$inverseTransform(ptrans))
+      returnType(double(1))
+    }
+  ),
+  buildDerivs = &#39;neg_logLikelihood&#39;
+)
+
+## Build function which calls setup.
+objR &lt;- fn(model, c(&quot;beta&quot;, &quot;sigma&quot;))
+## Now can run in R.
+objR$neg_logLikelihood(c(rep(0, ncol(X)), 0))
+
+## Compile into C++
+obj &lt;- compileNimble(objR, project = model) ## Compile this into C++ too!
+obj$neg_logLikelihood(c(rep(0, ncol(X)), 3)) 
+## These calls change the global model values.
+values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;))
+obj$neg_logLikelihood(c(rep(0, ncol(X)), 0))
+values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;))
+
+fit &lt;- nlminb(values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;)), 
+    obj$neg_logLikelihood, obj$gr_neg_logLikelihood)
+
+fit.lm &lt;- lm(weight ~ Diet + Time, data = ChickWeight)
+c(coef(fit.lm), sigma(fit.lm)) - obj$inverse(fit$par)</code></pre>
 <p>Just like in RTMB, we might want to get the variance estimates by
 finding the inverse of the Hessian. Let’s write a function to do that
 now and also the Delta method that TMB uses.</p>
+<pre class="r"><code>## Now let&#39;s build the likelihood using a Nimble Function:
+fn &lt;- nimbleFunction(
+  setup = function(model, paramNodes){    ## Executed purely in R before compilation.
+    ## Clean up node names.
+    paramNodes &lt;- model$expandNodeNames(paramNodes)
+    ## Get the log likelihood nodes.
+    calcNodes &lt;- model$getDependencies(paramNodes, self = FALSE)
+    
+    # Set up the additional arguments for nimDerivs involving model$calculate
+    derivsInfo &lt;- makeModelDerivsInfo(model, paramNodes, calcNodes)
+    updateNodes &lt;- derivsInfo$updateNodes
+    constantNodes &lt;- derivsInfo$constantNodes
+    
+    # Create a parameter transformation between original and unconstrained
+    # parameter spaces.
+    transformer &lt;- parameterTransform(model, paramNodes)
+  },
+  #run = function(){},
+  methods = list(
+    neg_logLikelihood = function(ptrans = double(1)) {
+      ## Objective function for optim/or nlminb,
+      ## using transformed parameter space.
+      p &lt;- transformer$inverseTransform(ptrans)
+      values(model, paramNodes) &lt;&lt;- p
+      return(-model$calculate(calcNodes))
+      returnType(double())
+    },
+    gr_neg_logLikelihood = function(ptrans = double(1)) {
+      ## Gradient of neg log likelihood
+      d &lt;- derivs(neg_logLikelihood(ptrans), wrt = 1:length(ptrans), order = 1,
+                  model = model, updateNodes = updateNodes,
+                  constantNodes = constantNodes)
+      return(d$jacobian[1,])
+      returnType(double(1))
+    },
+    inverse = function(ptrans = double(1)) { # ... and its inverse.
+      return(transformer$inverseTransform(ptrans))
+      returnType(double(1))
+    },
+    hessian = function(ptrans = double(1)){
+      ## Gradient of the gradient of neg log likelihood (hessian)
+      d &lt;- derivs(gr_neg_logLikelihood(ptrans), wrt = 1:length(ptrans), order = 1)
+      return(d$jacobian)
+      returnType(double(2))
+    },
+    gr_inverse = function(ptrans = double(1)){
+      d &lt;- derivs(inverse(ptrans), wrt = 1:length(ptrans), order = 1)
+      returnType(double(2))
+      return(d$jacobian)
+    },
+    standarderror = function(ptrans = double(1), trans = logical(0, default = FALSE)){
+      returnType(double(1))
+      vcov &lt;- inverse(hessian(ptrans))
+      if(trans) return(sqrt(diag(vcov)))
+      gr &lt;- gr_inverse(ptrans)
+      vcov_delta &lt;- gr %*% vcov %*% t(gr)
+      return(sqrt(diag(vcov_delta)))
+    }
+  ),
+  buildDerivs = c(&#39;neg_logLikelihood&#39;, &#39;gr_neg_logLikelihood&#39;, &#39;inverse&#39;)
+)
+
+cmodel &lt;- compileNimble(model)
+objR &lt;- fn(model, c(&quot;beta&quot;, &quot;sigma&quot;))
+obj &lt;- compileNimble(objR, project = model) ## Compile this into C++ too!
+values(cmodel, &#39;beta&#39;) &lt;- rep(0, length(values(cmodel, &#39;beta&#39;) ))
+values(cmodel, &#39;sigma&#39;) &lt;- 15
+fit &lt;- nlminb(values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;)), 
+    obj$neg_logLikelihood, obj$gr_neg_logLikelihood)
+
+obj$inverse(fit$par)
+obj$standarderror(fit$par, trans = FALSE)</code></pre>
 <p>Well that was a lot of work to find the MLE for a super basic
 problem. But it’s actually fully generalized for any model input. Let’s
 reassess the Harrison Chinook data and use this again.</p>
+<pre class="r"><code>library(samEst)
+data(harck)
+
+modelcode &lt;- nimbleCode({
+  ## Make some priors. These give bounds for parameter transformations.
+  beta ~ dhalfflat()
+  alpha ~ dhalfflat()
+  sigma ~ dhalfflat()  
+
+  ## Build the Likelihood
+  for (i in 1:n){
+    E_logRS[i] &lt;- log(alpha) - beta*S[i]
+    logRS[i] ~ dnorm(mean = E_logRS[i], sd = sigma)
+  }
+})
+constants &lt;- list(n = nrow(harck), S = harck$S)
+dat &lt;- list(logRS = harck$logRS)
+model &lt;- nimbleModel(code = modelcode, constants = constants,
+                    data = dat, buildDerivs = TRUE) ## Turn on or off AD.
+
+## Create some initial values:
+model$beta &lt;- 0.00001
+model$sigma &lt;- 0.1
+model$alpha &lt;- 2
+## Run model with them:
+model$calculate()
+
+cmodel &lt;- compileNimble(model)
+objR &lt;- fn(model, c(&quot;alpha&quot;, &quot;beta&quot;, &quot;sigma&quot;))  ## New parameters.
+obj &lt;- compileNimble(objR, project = model)
+
+fit &lt;- nlminb(c(0, 0, 0), 
+    obj$neg_logLikelihood, obj$gr_neg_logLikelihood)
+
+obj$inverse(fit$par)
+obj$standarderror(fit$par, trans = FALSE)</code></pre>
 <p>Now try writing an auto regressive process for these data in
 Nimble.</p>
 </div>

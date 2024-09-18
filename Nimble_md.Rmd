@@ -64,14 +64,14 @@ It is capable of building a graphical model based off of what is essentially the
 
 My goal is to create a version called `nimbleFisheries` that contains all the key functions that people need to complete their stock assessment models.
 
-```{r, echo = TRUE}
+```{r data, echo = TRUE}
 library(nimble)
 data(ChickWeight)
 ```
 
 Let's fit the same linear model as the previous section but with Nimble.
 
-```{r, echo = TRUE}
+```{r mod1, echo = TRUE, show = 'markup', eval = FALSE}
 modelcode <- nimbleCode({
   ## Make some priors. These give bounds for parameter transformations.
   ## for( i in 1:nfixef ) beta[i] ~ dnorm(0,1)
@@ -102,7 +102,7 @@ model$calculate()
 ```
 
 Now let's look at how we can actually use this model.
-```{r, echo = TRUE}
+```{r calc, echo = TRUE, show = 'markup', eval = FALSE}
 ## How can we call the function?
 model$beta <- rep(0, ncol(X))
 model$sigma <- 1
@@ -110,7 +110,7 @@ model$calculate() ## Same as calling the objective function!
 ```
 Let's turn that into C++.
 
-```{r, echo = TRUE}
+```{r speed, echo = TRUE, show = 'markup', eval = FALSE}
 cmodel <- compileNimble(model)
 cmodel$calculate()
 microbenchmark::microbenchmark(
@@ -122,7 +122,7 @@ Okay now let's do maximum likelihood estimation. In this case, we don't care abo
 
 To start, we think about how we can access the parts of the model due to its hierarchical structure. We have helper functions like `getDependencies` that will tell us all the model nodes that depend on a single parameter. So if we are doing maximization on `sigma`, then we will want to find all the data that depend on `sigma`.
 
-```{r}
+```{r nodenames, echo = TRUE, show ='markup', eval = FALSE}
 ## What are all the nodes in the model:
 head(cmodel$getNodeNames())
 
@@ -157,7 +157,7 @@ Now we will use the model structure to build what is called a Nimble Function. T
 
 In the example we will not use `run`.
 
-```{r}
+```{r nf, echo = TRUE, show = 'markup', eval = FALSE}
 ## Now let's build the likelihood using a Nimble Function:
 fn <- nimbleFunction(
   setup = function(model, paramNodes){    ## Executed purely in R before compilation.
@@ -223,7 +223,7 @@ c(coef(fit.lm), sigma(fit.lm)) - obj$inverse(fit$par)
 
 Just like in RTMB, we might want to get the variance estimates by finding the inverse of the Hessian. Let's write a function to do that now and also the Delta method that TMB uses.
 
-```{r}
+```{r nfgr, echo = TRUE, show = 'markup', eval = FALSE}
 ## Now let's build the likelihood using a Nimble Function:
 fn <- nimbleFunction(
   setup = function(model, paramNodes){    ## Executed purely in R before compilation.
@@ -300,7 +300,7 @@ obj$standarderror(fit$par, trans = FALSE)
 
 Well that was a lot of work to find the MLE for a super basic problem. But it's actually fully generalized for any model input. Let's reassess the Harrison Chinook data and use this again.
 
-```{r}
+```{r harck, echo = TRUE, show = 'markup', eval = FALSE}
 library(samEst)
 data(harck)
 
@@ -340,3 +340,61 @@ obj$standarderror(fit$par, trans = FALSE)
 ```
 
 Now try writing an auto regressive process for these data in Nimble.
+
+```{r harckAR1, echo = TRUE, show = 'markup', eval = FALSE}
+load("harck")
+library(nimble)
+modelcode <- nimbleCode({
+  ## Make some priors. These give bounds for parameter transformations.
+  beta ~ dhalfflat()
+  alpha ~ dhalfflat()
+  sigma ~ dhalfflat()  
+  sigma_yr ~ dhalfflat()
+  phi ~ dunif(-1,1)
+  
+  ar1[1] ~ dnorm(mean = 0, sd = sigma_yr/sqrt(1-phi^2))
+  ## AR1 Process:
+  for( y in 2:yrmax ){
+    ar1[y] ~ dnorm(mean = phi*ar1[y-1], sd = sigma)
+  }
+  
+  ## Build the Likelihood
+  for (i in 1:n){
+    E_logRS[i] <- log(alpha) - beta*S[i] + ar1[year[i]]
+    logRS[i] ~ dnorm(mean = E_logRS[i], sd = sigma)
+  }
+})
+harck$yrf <- harck$by - min(harck$by) + 1
+constants <- list(n = nrow(harck), S = harck$S, yrmax = max(harck$yrf), year = harck$yrf)
+dat <- list(logRS = harck$logRS)
+## Create some initial values:
+inits <- function(){list(beta = 0.0001, sigma = 0.1, 
+  alpha = 2, sigma_yr = 0.01, phi = -0.1, 
+  ar1 = rep(0, constants$yrmax))}
+## Model
+model <- nimbleModel(code = modelcode, constants = constants, 
+  inits = inits(),  data = dat, buildDerivs = TRUE) ## Turn on or off AD.
+
+cmodel <- compileNimble(model)
+modLaplace <- buildLaplace(model)
+cmodLaplace <- compileNimble(modLaplace, project = model)
+
+MLE <- cmodLaplace$findMLE()
+summ1 <- cmodLaplace$summary(MLE)
+## or 
+summ2 <- summaryLaplace(cmodLaplace, MLE)
+summ1$params
+summ2$params
+
+## Quick compare with MCMC version:
+conf <- configureMCMC(model)
+mcmc <- buildMCMC(conf)
+cmodel <- compileNimble(model)
+cmcmc <- compileNimble(mcmc, project = model)
+cmcmc$run(100000)
+mvSamples <- cmcmc$mvSamples
+samples <- as.matrix(mvSamples)
+out <- coda::mcmc(samples[-(1:5000),])	# Burn in
+mcmc.sum <- do.call("cbind", summary(out))
+```
+
