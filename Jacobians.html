@@ -13,7 +13,7 @@
 
 <meta name="date" content="2024-09-19" />
 
-<title>Introduction to Nimble</title>
+<title>Change of Variables + Bayesian Examples</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -350,7 +350,8 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">Introduction to Nimble</h1>
+<h1 class="title toc-ignore">Change of Variables + Bayesian
+Examples</h1>
 <h3 class="subtitle">Pacific Stock Assessment Renewal</h3>
 <h4 class="author">Paul van Dam-Bates</h4>
 <h4 class="date">2024-09-19</h4>
@@ -358,362 +359,208 @@ display: none;
 </div>
 
 
-<div id="part-i-introduction-to-nimble" class="section level2">
-<h2>Part I: Introduction to Nimble</h2>
-<p>NIMBLE stands for Numerical Inference for statistical Models for
-Bayesian and Likelihood Estimation.</p>
-<p>One way to think about nimble is as a C++ compiler with a bunch of
-built in algorithms. Those algorithms include (often in separate
-packages):</p>
+<div id="transformations" class="section level2">
+<h2>Transformations</h2>
+<p>Often in statistics we need to convert from <span class="math inline">\(x\)</span> to <span class="math inline">\(y\)</span> where <span class="math inline">\(y =
+g(x)\)</span>. In these cases we know the distribution of <span class="math inline">\(x\)</span>, <span class="math inline">\(f_x(x)\)</span> but do not know the distribution
+of <span class="math inline">\(y\)</span>, <span class="math inline">\(f_y(y)\)</span>. When working with continuous
+random variables, we can use a change of variable,</p>
+<p><span class="math display">\[f_y(\mathbf{y}) =
+f_x(g^{-1}(\mathbf{x})) |\mathbf{J}_{g^{-1}(x)}|.\]</span></p>
+<p>Let’s start with the simplest version we are familiar with where
+<span class="math inline">\(x\)</span> is a standard normal
+distribution, <span class="math display">\[ f_x(x) =
+\frac{1}{\sqrt{2\pi}}e^{-0.5x^2}. \]</span> Then, if <span class="math inline">\(y = \mu + z\sigma\)</span>, then</p>
+<p><span class="math display">\[ f_y(y) = f_x((y - \mu)/\sigma) \times
+1/\sigma =
+\frac{1}{\sqrt{2\pi}\sigma}e^{-0.5\big(\frac{y-\mu}{\sigma}\big)^2}.\]</span></p>
+</div>
+<div id="but-when-do-i-need-jacobians" class="section level2">
+<h2>But when do I need Jacobians?</h2>
 <ol style="list-style-type: decimal">
-<li><p>Markov chain Monte Carlo (MCMC)</p></li>
-<li><p>Automatic Differentiation</p></li>
-<li><p>Hamiltonian Monte Carlo (HMC), a specific type of MCMC that uses
-gradients to sample the posterior (e.g. STAN)
-(<code>nimbleHMC</code>)</p></li>
-<li><p>Laplace approximation (to be included in
-<code>nimbleQuad</code>)</p></li>
-<li><p>Adaptive Gauss-Hermite quadrature (to be included in
-<code>nimbleQuad</code>)</p></li>
-<li><p>Monte Carlo Expectation Maximization (MCEM)</p></li>
-<li><p>Particle filtering, Particle MCMC, Iterated Particle Filtering,
-and Ensemble Kalman Filter (<code>nimbleSMC</code>)</p></li>
-<li><p>Ecological model components such as N-Mixture and Occupancy
-(<code>nimbleEcology</code>)</p></li>
-<li><p>Spatial Capture-Recapture Models
-(<code>nimbleSCR</code>)</p></li>
+<li>Is your variable being transformed a RANDOM VARIABLE? Yes? Then you
+need a Jacobian.</li>
 </ol>
-<p>It is capable of building a graphical model based off of what is
-essentially the BUGS language (also used by JAGS) but offers it’s own
-version of custom functions as well.</p>
-<p>My goal is to create a version called <code>nimbleFisheries</code>
-that contains all the key functions that people need to complete their
-stock assessment models.</p>
-<pre class="r"><code>library(nimble)
-data(ChickWeight)</code></pre>
-<p>Let’s fit the same linear model as the previous section but with
-Nimble.</p>
-<pre class="r"><code>modelcode &lt;- nimbleCode({
-  ## Make some priors. These give bounds for parameter transformations.
-  ## for( i in 1:nfixef ) beta[i] ~ dnorm(0,1)
-  ## sigma ~ dgamma(1,1)
-  
-  ## Parameter bounds:
-  for( i in 1:nfixef ) beta[i] ~ dflat() #(-inf, inf)
-  sigma ~ dhalfflat()                    #(0, inf)
-  
-  ## Build the Likelihood
-  for (i in 1:n){
-    mu[i] &lt;- inprod(beta[1:nfixef], X[i,])
-    w[i] ~ dnorm(mean = mu[i], sd = sigma)
-  }
-})
-X &lt;- model.matrix(~ Diet + Time, ChickWeight)
-constants &lt;- list(X = X, nfixef = ncol(X), n = nrow(ChickWeight))
-dat &lt;- list(w = ChickWeight$weight)
-model &lt;- nimbleModel(code = modelcode, constants = constants,
-                    data = dat, buildDerivs = TRUE) ## Turn on or off AD.
+<p>Example 1, you are running a linear model and need to transform <span class="math inline">\(\theta = log(\sigma)\)</span>, so that we can fit
+<span class="math inline">\(\theta\)</span> for computational reasons
+doing maximum likelihood estimation. Do you need to do a transformation
+of variables?</p>
+<p>Example 2, it is the same situation, however you are going to find
+the posterior distribution. You assume that <span class="math inline">\(\sigma \sim \text{gamma}(\alpha, \beta)\)</span>.
+a. You are using MCMC and a Gibbs sampler to sample <span class="math inline">\(\sigma\)</span>.</p>
+<ol style="list-style-type: lower-alpha">
+<li><p>You are using MCMC and applying a standard Metropolis Hastings
+random walk.</p></li>
+<li><p>You are using STAN and HMC to sample <span class="math inline">\(\sigma\)</span> with a constraint applied to the
+STAN argument.</p></li>
+<li><p>You are using STAN and HMC to sample <span class="math inline">\(log(\sigma)\)</span>.</p></li>
+<li><p>You are just finding the maximum a posterior mode (MAP) of <span class="math inline">\(log(\sigma)\)</span>.</p></li>
+</ol>
+<p>Example 3, you are using a <span class="math inline">\(u \sim
+\text{gamma}(\alpha, \beta)\)</span> distributed random effect, instead
+of Gaussian and will use Laplace to find the MLE.</p>
+<div id="worked-example" class="section level3">
+<h3>Worked example:</h3>
+<p>Create an objective function to find the posterior mode.</p>
+<pre class="r"><code>## Version 1
+set.seed(123)
+y &lt;- rnorm(1000, 5, 3)
+fn1 &lt;- function(par){
+  getAll(par)
+  sigma &lt;- exp(logsigma)
+  negll &lt;- 0
+  negll &lt;- negll - dgamma(sigma, shape = 1, scale = 1, log = TRUE)
+  negll &lt;- negll - dnorm(mu, 0, sd = 0.01, log = TRUE)
+  negll &lt;- negll - sum(dnorm(y, mean = mu, sd = sigma, log = TRUE))
+  negll
+}
+par &lt;- list(mu = 0, logsigma = 1)
+obj1 &lt;- MakeADFun(fn1, par, silent = TRUE)
 
-## Create some initial values:
-model$beta &lt;- rep(0, length(model$beta))
-model$sigma &lt;- 1
+trans &lt;- MakeTape(function(x){exp(x)}, 0.1)
+fn2 &lt;- function(par){
+  getAll(par)
+  sigma &lt;- exp(logsigma)
+  negll &lt;- 0
+  negll &lt;- negll - dgamma(trans(logsigma), shape = 1, scale = 1, log = TRUE) - 
+    logsigma
+  negll &lt;- negll - dnorm(mu, 0, sd = 0.01, log = TRUE)
+  negll &lt;- negll - sum(dnorm(y, mean = mu, sd = sigma, log = TRUE))
+  negll
+}
+obj2 &lt;- MakeADFun(fn2, par, silent = TRUE)
+obj1$fn()
+obj2$fn()</code></pre>
+</div>
+<div id="worked-example-1" class="section level3">
+<h3>Worked example:</h3>
+<p>Create an example with gamma distributed random effects.</p>
+<pre class="r"><code>set.seed(123)
+y &lt;- rnbinom(100, size = 10, prob = 0.5)
 
-## Run model with them:
-model$calculate()</code></pre>
-<p>Now let’s look at how we can actually use this model.</p>
-<pre class="r"><code>## How can we call the function?
-model$beta &lt;- rep(0, ncol(X))
-model$sigma &lt;- 1
-model$calculate() ## Same as calling the objective function!</code></pre>
-<p>Let’s turn that into C++.</p>
-<pre class="r"><code>cmodel &lt;- compileNimble(model)
-cmodel$calculate()
-microbenchmark::microbenchmark(
-  Rversion = model$calculate(),
-  Cversion = cmodel$calculate()
-  )</code></pre>
-<p>Okay now let’s do maximum likelihood estimation. In this case, we
-don’t care about any prior distributions. Luckily, Nimble has a graph
-which allows us to only change some pieces of the data and calculate
-specific parts of the likelihood.</p>
-<p>To start, we think about how we can access the parts of the model due
-to its hierarchical structure. We have helper functions like
-<code>getDependencies</code> that will tell us all the model nodes that
-depend on a single parameter. So if we are doing maximization on
-<code>sigma</code>, then we will want to find all the data that depend
-on <code>sigma</code>.</p>
-<pre class="r"><code>## What are all the nodes in the model:
-head(cmodel$getNodeNames())
+gammapois1 &lt;- function(pars){
+  getAll(pars)
+  p &lt;- 1/(1+exp(-logitp))
+  size &lt;- exp(logsize)
+  lambda &lt;- exp(loglambda)
+  REPORT(lambda)
+  negll &lt;- -sum(dgamma(lambda, shape = size, scale = (1-p)/p, log = TRUE))
+  negll &lt;- negll - sum(dpois(y, lambda, log = TRUE))
+  negll
+}
+pars &lt;- list(loglambda = rnorm(length(y), 0, 0.1), logsize=log(10), logitp = 1)
+obj1 &lt;- MakeADFun(gammapois1, pars, random = &quot;loglambda&quot;, silent = TRUE)
+obj1$fn()
+fit1 &lt;- nlminb(obj1$par, obj1$fn, obj1$gr)
 
-## what nodes depend on just the data?
-nodes &lt;- cmodel$getDependencies(&quot;sigma&quot;, self = FALSE)
-nodes[1:5]
-## Can access any individual probability in the model:
-cmodel$getLogProb(nodes[1]) - 
-  dnorm(values(cmodel, nodes[1]), mean = cmodel$mu[1], sd = cmodel$sigma, log = TRUE)
+gammapois2 &lt;- function(pars){
+  getAll(pars)
+  p &lt;- 1/(1+exp(-logitp))
+  size &lt;- exp(logsize)
+  lambda &lt;- exp(loglambda)
+  REPORT(lambda)
+  n &lt;- length(y)
+  negll &lt;- -sum(dgamma(lambda, shape = size, scale = (1-p)/p, log = TRUE)) - 
+    sum(loglambda)
+  negll &lt;- negll - sum(dpois(y, lambda, log = TRUE))
+  negll
+}
+obj2 &lt;- MakeADFun(gammapois2, pars, random = &quot;loglambda&quot;, silent = TRUE)
+obj2$fn()
+fit2 &lt;- nlminb(obj2$par, obj2$fn, obj2$gr)
 
-## Access all the data probabilities:
-head(cmodel$logProb_w)
-
-## Get the &quot;current&quot; log probability of a node:
-cmodel$getLogProb(&quot;sigma&quot;)
-
-## We can access current model values via getLogProb, or if we have updated something, we need to run &#39;calculate&#39;.
-cmodel$sigma &lt;- 3
-cmodel$getLogProb(&quot;w[1]&quot;)
-cmodel$calculate(&quot;w[1]&quot;)</code></pre>
-<p>Knowing node structure and how to use <code>calculate</code> is part
-of how Nimble can be super efficient. Instead of calling an entire
-objective function defined in model code, we can just call pieces of it
-that relate to specific parameters and not update the entire function
-each time.</p>
-<p>Now we will use the model structure to build what is called a Nimble
-Function. They are broken up into three key pieces:</p>
+tru.fn &lt;- function(pars){
+  -sum(dnbinom(y, size = exp(pars[1]),  
+    prob = 1/(1+exp(-pars[2])), log = TRUE))
+}
+obj1$fn(c(log(10), 0))
+obj2$fn(c(log(10), 0))
+tru.fn(c(log(10), 0))</code></pre>
+</div>
+<div id="rules" class="section level3">
+<h3>Rules:</h3>
 <ol style="list-style-type: decimal">
-<li><p><code>setup</code> - This is the first function for a Nimble
-Function. It executes in R and builds globally accessible values for the
-entire Nimble Function. We can pass it anything and use R commands and
-specific packages within.</p></li>
-<li><p><code>run</code> - This is the typically the main function that
-is run by model code. This function will be compiled into C++ and thus
-is not really <code>R</code> code but R-like code that has to be written
-in a way that the compiler can understand.</p></li>
-<li><p><code>methods</code> - This is any additional functions you might
-want to be able to use either in run code or separately. They are built
-in a <code>list()</code>.</p></li>
+<li>Is it a random variable being transformed? If it is, it needs a
+transformation and that means a Jacobian!</li>
+<li>Frequentist: If it is and it is a parameter then it does not need a
+Jacobian. If it is a random-effect it does need a Jacobian.</li>
+<li>Bayesian: Parameters are random variables and thus need the
+Jacobian.</li>
 </ol>
-<p>In the example we will not use <code>run</code>.</p>
-<pre class="r"><code>## Now let&#39;s build the likelihood using a Nimble Function:
-fn &lt;- nimbleFunction(
-  setup = function(model, paramNodes){    ## Executed purely in R before compilation.
-    ## Clean up node names.
-    paramNodes &lt;- model$expandNodeNames(paramNodes)
-    ## Get the log likelihood nodes.
-    calcNodes &lt;- model$getDependencies(paramNodes, self = FALSE)
-    
-    # Set up the additional arguments for nimDerivs involving model$calculate
-    derivsInfo &lt;- makeModelDerivsInfo(model, paramNodes, calcNodes)
-    updateNodes &lt;- derivsInfo$updateNodes
-    constantNodes &lt;- derivsInfo$constantNodes
-    
-    # Create a parameter transformation between original and unconstrained
-    # parameter spaces.
-    transformer &lt;- parameterTransform(model, paramNodes)
-  },
-  #run = function(){},
-  methods = list(
-    neg_logLikelihood = function(ptrans = double(1)) {
-      # Objective function for optim,
-      # using transformed parameter space.
-      p &lt;- transformer$inverseTransform(ptrans)
-      values(model, paramNodes) &lt;&lt;- p
-      return(-model$calculate(calcNodes))
-      returnType(double())
-    },
-    gr_neg_logLikelihood = function(ptrans = double(1)) {
-      # Gradient of neg log likelihood
-      d &lt;- derivs(neg_logLikelihood(ptrans), wrt = 1:length(ptrans), order = 1,
-                  model = model, updateNodes = updateNodes,
-                  constantNodes = constantNodes)
-      return(d$jacobian[1,])
-      returnType(double(1))
-    },
-    inverse = function(ptrans = double(1)) { # ... and its inverse.
-      return(transformer$inverseTransform(ptrans))
-      returnType(double(1))
-    }
-  ),
-  buildDerivs = &#39;neg_logLikelihood&#39;
-)
+<ul>
+<li>Failure to transform properly using the Jacobian will result in not
+actually using the distribution you think you are on the parameter space
+you are intending. A flat distribution on the log scale does not imply
+totally flat on the real scale.</li>
+</ul>
+</div>
+</div>
+<div id="stan-and-rtmb--" class="section level2">
+<h2>STAN and RTMB -</h2>
+<div id="setting-up-prior-distributions" class="section level3">
+<h3>Setting up prior distributions</h3>
+<pre class="r"><code>## Create a general transformation method:
+prior_transforms &lt;- function(theta){
+  c(theta[1], theta[2], exp(theta[3]), exp(theta[4]), 1/(1+exp(-theta[5])))
+}
+F &lt;- MakeTape(prior_transforms, numeric(5))
+determinant(F$jacobian(numeric(5)), log  = TRUE)</code></pre>
+<ul>
+<li>STAN and RTMB interface: get the data out.</li>
+</ul>
+<pre class="r"><code>library(tmbstan)
+fn &lt;- function(par){
+  getAll(par, harck)
+  ## Requires stupid logistic limit trick to make sure uniform is maintained.
+  ## Didn&#39;t work in STAN...
+  ## beta &lt;- transilogit(logbeta)*0.1 + 0    ## beta ~ uniform(0,1)
+  ## sigma &lt;- transilogit(logsigma)*1000 + 0  ## sigma ~ uniform(0,1000)
+  ## alpha &lt;- transilogit(logalpha)*100 + 0  ## alpha ~ uniform(0, 100)
 
-## Build function which calls setup.
-objR &lt;- fn(model, c(&quot;beta&quot;, &quot;sigma&quot;))
-## Now can run in R.
-objR$neg_logLikelihood(c(rep(0, ncol(X)), 0))
+  beta &lt;- exp(logbeta)    ## beta ~ uniform(0,1)
+  sigma &lt;- exp(logsigma)  ## sigma ~ uniform(0,1000)
+  alpha &lt;- exp(logalpha)  ## alpha ~ uniform(0, 100)
 
-## Compile into C++
-obj &lt;- compileNimble(objR, project = model) ## Compile this into C++ too!
-obj$neg_logLikelihood(c(rep(0, ncol(X)), 3)) 
-## These calls change the global model values.
-values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;))
-obj$neg_logLikelihood(c(rep(0, ncol(X)), 0))
-values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;))
-
-fit &lt;- nlminb(values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;)), 
-    obj$neg_logLikelihood, obj$gr_neg_logLikelihood)
-
-fit.lm &lt;- lm(weight ~ Diet + Time, data = ChickWeight)
-c(coef(fit.lm), sigma(fit.lm)) - obj$inverse(fit$par)</code></pre>
-<p>Just like in RTMB, we might want to get the variance estimates by
-finding the inverse of the Hessian. Let’s write a function to do that
-now and also the Delta method that TMB uses.</p>
-<pre class="r"><code>## Now let&#39;s build the likelihood using a Nimble Function:
-fn &lt;- nimbleFunction(
-  setup = function(model, paramNodes){    ## Executed purely in R before compilation.
-    ## Clean up node names.
-    paramNodes &lt;- model$expandNodeNames(paramNodes)
-    ## Get the log likelihood nodes.
-    calcNodes &lt;- model$getDependencies(paramNodes, self = FALSE)
-    
-    # Set up the additional arguments for nimDerivs involving model$calculate
-    derivsInfo &lt;- makeModelDerivsInfo(model, paramNodes, calcNodes)
-    updateNodes &lt;- derivsInfo$updateNodes
-    constantNodes &lt;- derivsInfo$constantNodes
-    
-    # Create a parameter transformation between original and unconstrained
-    # parameter spaces.
-    transformer &lt;- parameterTransform(model, paramNodes)
-  },
-  #run = function(){},
-  methods = list(
-    neg_logLikelihood = function(ptrans = double(1)) {
-      ## Objective function for optim/or nlminb,
-      ## using transformed parameter space.
-      p &lt;- transformer$inverseTransform(ptrans)
-      values(model, paramNodes) &lt;&lt;- p
-      return(-model$calculate(calcNodes))
-      returnType(double())
-    },
-    gr_neg_logLikelihood = function(ptrans = double(1)) {
-      ## Gradient of neg log likelihood
-      d &lt;- derivs(neg_logLikelihood(ptrans), wrt = 1:length(ptrans), order = 1,
-                  model = model, updateNodes = updateNodes,
-                  constantNodes = constantNodes)
-      return(d$jacobian[1,])
-      returnType(double(1))
-    },
-    inverse = function(ptrans = double(1)) { # ... and its inverse.
-      return(transformer$inverseTransform(ptrans))
-      returnType(double(1))
-    },
-    hessian = function(ptrans = double(1)){
-      ## Gradient of the gradient of neg log likelihood (hessian)
-      d &lt;- derivs(gr_neg_logLikelihood(ptrans), wrt = 1:length(ptrans), order = 1)
-      return(d$jacobian)
-      returnType(double(2))
-    },
-    gr_inverse = function(ptrans = double(1)){
-      d &lt;- derivs(inverse(ptrans), wrt = 1:length(ptrans), order = 1)
-      returnType(double(2))
-      return(d$jacobian)
-    },
-    standarderror = function(ptrans = double(1), trans = logical(0, default = FALSE)){
-      returnType(double(1))
-      vcov &lt;- inverse(hessian(ptrans))
-      if(trans) return(sqrt(diag(vcov)))
-      gr &lt;- gr_inverse(ptrans)
-      vcov_delta &lt;- gr %*% vcov %*% t(gr)
-      return(sqrt(diag(vcov_delta)))
-    }
-  ),
-  buildDerivs = c(&#39;neg_logLikelihood&#39;, &#39;gr_neg_logLikelihood&#39;, &#39;inverse&#39;)
-)
-
-cmodel &lt;- compileNimble(model)
-objR &lt;- fn(model, c(&quot;beta&quot;, &quot;sigma&quot;))
-obj &lt;- compileNimble(objR, project = model) ## Compile this into C++ too!
-values(cmodel, &#39;beta&#39;) &lt;- rep(0, length(values(cmodel, &#39;beta&#39;) ))
-values(cmodel, &#39;sigma&#39;) &lt;- 15
-fit &lt;- nlminb(values(cmodel, c(&#39;beta&#39;, &#39;sigma&#39;)), 
-    obj$neg_logLikelihood, obj$gr_neg_logLikelihood)
-
-obj$inverse(fit$par)
-obj$standarderror(fit$par, trans = FALSE)</code></pre>
-<p>Well that was a lot of work to find the MLE for a super basic
-problem. But it’s actually fully generalized for any model input. Let’s
-reassess the Harrison Chinook data and use this again.</p>
-<pre class="r"><code>library(samEst)
-data(harck)
-
-modelcode &lt;- nimbleCode({
-  ## Make some priors. These give bounds for parameter transformations.
-  beta ~ dhalfflat()
-  alpha ~ dhalfflat()
-  sigma ~ dhalfflat()  
-
-  ## Build the Likelihood
-  for (i in 1:n){
-    E_logRS[i] &lt;- log(alpha) - beta*S[i]
-    logRS[i] ~ dnorm(mean = E_logRS[i], sd = sigma)
-  }
-})
-constants &lt;- list(n = nrow(harck), S = harck$S)
-dat &lt;- list(logRS = harck$logRS)
-model &lt;- nimbleModel(code = modelcode, constants = constants,
-                    data = dat, buildDerivs = TRUE) ## Turn on or off AD.
-
-## Create some initial values:
-model$beta &lt;- 0.00001
-model$sigma &lt;- 0.1
-model$alpha &lt;- 2
-## Run model with them:
-model$calculate()
-
-cmodel &lt;- compileNimble(model)
-objR &lt;- fn(model, c(&quot;alpha&quot;, &quot;beta&quot;, &quot;sigma&quot;))  ## New parameters.
-obj &lt;- compileNimble(objR, project = model)
-
-fit &lt;- nlminb(c(0, 0, 0), 
-    obj$neg_logLikelihood, obj$gr_neg_logLikelihood)
-
-obj$inverse(fit$par)
-obj$standarderror(fit$par, trans = FALSE)</code></pre>
-<p>Now try writing an auto regressive process for these data in
-Nimble.</p>
-<pre class="r"><code>load(&quot;harck&quot;)
-library(nimble)
-modelcode &lt;- nimbleCode({
-  ## Make some priors. These give bounds for parameter transformations.
-  beta ~ dhalfflat()
-  alpha ~ dhalfflat()
-  sigma ~ dhalfflat()  
-  sigma_yr ~ dhalfflat()
-  phi ~ dunif(-1,1)
+  negll &lt;- 0
+  ## Add prior distributions:
+  negll &lt;- negll - log(1/0.1) - logbeta
+  negll &lt;- negll - log(1/1000) - logsigma
+  negll &lt;- negll - log(1/100) - logalpha
   
-  ar1[1] ~ dnorm(mean = 0, sd = sigma_yr/sqrt(1-phi^2))
-  ## AR1 Process:
-  for( y in 2:yrmax ){
-    ar1[y] ~ dnorm(mean = phi*ar1[y-1], sd = sigma)
-  }
-  
-  ## Build the Likelihood
-  for (i in 1:n){
-    E_logRS[i] &lt;- log(alpha) - beta*S[i] + ar1[year[i]]
-    logRS[i] ~ dnorm(mean = E_logRS[i], sd = sigma)
-  }
-})
-harck$yrf &lt;- harck$by - min(harck$by) + 1
-constants &lt;- list(n = nrow(harck), S = harck$S, yrmax = max(harck$yrf), year = harck$yrf)
-dat &lt;- list(logRS = harck$logRS)
-## Create some initial values:
-inits &lt;- function(){list(beta = 0.0001, sigma = 0.1, 
-  alpha = 2, sigma_yr = 0.01, phi = -0.1, 
-  ar1 = rep(0, constants$yrmax))}
-## Model
-model &lt;- nimbleModel(code = modelcode, constants = constants, 
-  inits = inits(),  data = dat, buildDerivs = TRUE) ## Turn on or off AD.
+  Expected_logRS &lt;- log(alpha) - beta*S
+  negll &lt;- negll - sum(dnorm(logRS, 
+                        mean = Expected_logRS, sd = sigma, log = TRUE))
 
-cmodel &lt;- compileNimble(model)
-modLaplace &lt;- buildLaplace(model)
-cmodLaplace &lt;- compileNimble(modLaplace, project = model)
+  Smsy &lt;- (1 - LambertW0(exp(1 - log(alpha))))/beta
+  umsy &lt;- (1 - LambertW0(exp(1 - log(alpha))))
+  Sgen &lt;-  -1/beta*LambertW0(-beta*Smsy/alpha)
 
-MLE &lt;- cmodLaplace$findMLE()
-summ1 &lt;- cmodLaplace$summary(MLE)
-## or 
-summ2 &lt;- summaryLaplace(cmodLaplace, MLE)
-summ1$params
-summ2$params
+  REPORT(Smsy)
+  REPORT(umsy)
+  REPORT(Sgen)
+  REPORT(sigma)
+  REPORT(alpha)
+  REPORT(beta)
+  return(negll)
+}
 
-## Quick compare with MCMC version:
-conf &lt;- configureMCMC(model)
-mcmc &lt;- buildMCMC(conf)
-cmodel &lt;- compileNimble(model)
-cmcmc &lt;- compileNimble(mcmc, project = model)
-cmcmc$run(100000)
-mvSamples &lt;- cmcmc$mvSamples
-samples &lt;- as.matrix(mvSamples)
-out &lt;- coda::mcmc(samples[-(1:5000),])  # Burn in
-mcmc.sum &lt;- do.call(&quot;cbind&quot;, summary(out))</code></pre>
+obj &lt;- MakeADFun(fn, list(logbeta=0,logsigma=0, logalpha=0), silent = TRUE) ## uh oh!
+fit.map &lt;- nlminb(obj$par, obj$fn, obj$gr)
+
+fit.stan &lt;- tmbstan(obj, chains=1, iter = 10000, 
+  init = c(0,0,0), lower = c(-Inf, -Inf, -Inf), upper = log(c(0.1, 1000, 100)))
+
+## Let&#39;s get posterior samples for all our REPORTS.
+post &lt;- as.matrix(fit.stan)
+report &lt;- obj$report()
+post.report &lt;- matrix(0,  nrow = nrow(post), ncol = length(report))
+colnames(post.report) &lt;- names(report)
+for( i in 1:nrow(post) )
+    post.report[i,] &lt;- do.call(&#39;c&#39;, 
+        obj$report(post[i,seq_along(obj$par)]))
+
+summary(coda::mcmc(post.report))</code></pre>
+</div>
 </div>
 
 

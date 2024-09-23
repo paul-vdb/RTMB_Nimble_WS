@@ -18,7 +18,7 @@ knitr_opts <- list(
   dpi = 300,
   out.width = "700px",
   fig.asp = 1 / 1.618,
-  cache = TRUE,
+  cache = FALSE,
   autodep = TRUE,
   cache.comments = TRUE,
   fig.align = "center",
@@ -216,21 +216,29 @@ $$f(y) = \frac{1}{\sqrt{2\pi}\sigma y}\text{exp}\Big(-\frac{(log(y)-\mu)^2}{2\si
 logtransform <- MakeTape(function(x){return(log(x))}, 0) ## go from (0, inf) -> (-inf, inf)
 dlognorm <- function(x, mean, sigma){
   ans <- NULL
-  for( i in seq_along(x) ) ans <- c(ans, dnorm(logtransform(x[i]), mean, sigma)*det(logtransform$jacobian(x[i])))
+  for( i in seq_along(x) ) {
+    ans <- c(ans, 
+      dnorm(logtransform(x[i]), mean, sigma)*det(logtransform$jacobian(x[i])))
+  }
   return(ans)
 }
 y <- seq(0, 10, by = 0.1)
-plot(y, dlognorm(x=y, 0, 1), xlab = "y", ylab = "density - lognormal")
+plot(y, dlognorm(x=y, 0, 1), xlab = "y", ylab = "density - lognormal", type = 'l')
 
 ## Logit Transform
 logittransform <- MakeTape(function(x){return(log(x/(1-x)))}, 0) ## go from (0,1) -> (-inf, inf)
 dlogitnorm <- function(x, mean, sigma){
   ans <- NULL
-  for( i in seq_along(x)) ans <- c(ans, dnorm(logittransform(x[i]), mean, sigma)*abs(det(logittransform$jacobian(x[i]))))
+  for( i in seq_along(x)) {
+    ans <- c(ans, 
+      dnorm(logittransform(x[i]), mean,sigma)*
+        abs(det(logittransform$jacobian(x[i]))))
+  }
   return(ans)
 }
 p <- seq(0.0001,0.999,0.01)
-plot(p, dlogitnorm(x=p, 0, 1), xlab = "p", ylab = "density - logitnormal")
+plot(p, dlogitnorm(x=p, 0, 1), xlab = "p", 
+  ylab = "density - logitnormal", type = 'l')
 ```
 
 ---
@@ -368,15 +376,14 @@ $$R_t = \alpha S_t e^{-\beta S_t}$$
 $$log(R_t/S_t) = log(\alpha) - \beta S_t$$
 
 - Install `samEst` from https://github.com/Pacific-salmon-assess/samEst/tree/main
-- We will use `data(harck)` from the samest package for this section.
+- We will use `load("harck.Rda")` from the GitHub page for this section.
 
 ### The Basic Linear Model
 
 - Code a linear model for the Harrison Chinook stock-recruitment data using RTMB (assuming Gaussian error structure for log(R/S)).
 
 ```{r, echo = TRUE, show= 'markup'} 
-library(samEst)
-data(harck)
+load("harck")
 fit.harck <- glmmTMB(logRS ~ S, data=harck)
 summary(fit.harck)
 ```
@@ -420,9 +427,8 @@ sqrt(diag(V)) - summary(sdrep, "fixed")[,2]
 
 - What about the transformed variables? RTMB uses the Delta method,
 
-.xsmall[
+
 $$V(g(\theta)) \approx \nabla g V(\theta) \nabla g'$$
-]
 
 ```{r, echo = TRUE, show = 'markup'}
 grad <- exp(fit$par)
@@ -431,95 +437,34 @@ sqrt(diag(Vg)) - summary(sdrep, "report")[c("alpha", "beta", "sigma"),2]
 ```
 - By now it should be really clear that if we can write fast code that efficiently returns derivatives, inference is pretty easy.
 
-### RTMB Practice
-
-- Write an auto regressive process for the `harck` data in RTMB.
-- Calculate and generate confidence intervals for maximum sustainable yield ( $S_{msy}$ ) and for the number of spawners needed to return to $S_{msy}$ in one generation, $S_{gen}$ .
-
-
-- Example: https://github.com/Pacific-salmon-assess/samEst/blob/main/R/LamW_RTMB.r
-
-```{r}
-FritschIter <- function(x, w){
-  MaxEval <- 5
-  CONVERGED <- FALSE
-  k <- 2.0 / 3.0;
-  i <- 0;
-  eps <- 2.2204460492503131e-16    
-  while (!CONVERGED & i < MaxEval){
-    z <- log(x / w) - w
-    w1 <- w + 1.0
-    q <- 2.0 * w1 * (w1 + k * z)
-    qmz <- q - z
-    e <- z / w1 * qmz / (qmz - z)
-    CONVERGED <- abs(e) <= eps
-    w <- w*(1.0 + e)
-    i <- i + 1
-  }
-  return(w)
-}
-LambertW0_internal <- function(x){
-  check <- 0.367879441171442334024277442949824035167694091796875 # exp(-1)
-  eps <- 2.2204460492503131e-16
-  if (x == Inf) {
-    return(Inf);
-  } else if (x < -check) {
-    return(NaN);
-  } else if (abs(x - check) <= eps) {
-    return(-1.0);
-  } else if (abs(x) <= 1e-16) {
-    ## This close to 0 the W_0 branch is best estimated by its Taylor/Pade
-    ## expansion whose first term is the value x and remaining terms are below
-    ## machine double precision. See
-    ## https://math.stackexchange.com/questions/1700919
-
-    return(x);
-  } else {
-    w <- 0
-    if (abs(x) <= 6.4e-3) {
-      ## When this close to 0 the Fritsch iteration may underflow. Instead,
-      ## function will use degree-6 minimax polynomial approximation of Halley
-      ## iteration-based values. Should be more accurate by three orders of
-      ## magnitude than Fritsch's equation (5) in this range.
-      return((((((-1.0805085529250425e1 * x + 5.2100070265741278) * x -
-             2.6666665063383532) * x + 1.4999999657268301) * x -
-             1.0000000000016802) * x + 1.0000000000001752) * x +
-             2.6020852139652106e-18);
-
-    } else if (x <= exp(1)) {
-      ## Use expansion in Corliss 4.22 to create (2, 2) Pade approximant.
-      ## Equation with a few extra terms is:
-      ## -1 + p - 1/3p^2 + 11/72p^3 - 43/540p^4 + 689453/8398080p^4 - O(p^5)
-      ## This is just used to estimate a good starting point for the Fritsch
-      ## iteration process itself.
-      
-      p <- sqrt(2.0 * (exp(1) * x + 1.0))
-      Numer <- (0.2787037037037037 * p + 0.311111111111111) * p - 1.0;
-      Denom <- (0.0768518518518518 * p + 0.688888888888889) * p + 1.0;
-      w <- Numer / Denom;
-    } else {
-      ## Use first five terms of Corliss et al. 4.19 */
-      w <- log(x)
-      L_2 <- log(w)
-      L_3 <- L_2 / w
-      L_3_sq <- L_3 * L_3
-      w <- w - L_2 + L_3 + 0.5 * L_3_sq - L_3 / w + L_3 / (w * w) - 1.5 * L_3_sq /
-        w + L_3_sq * L_3 / 3.0;
-    }
-    return(FritschIter(x, w));
-  }
-}
-
-dLambertW0_internal <- function(x, y, dy) {
-  dy / (exp(y) * (1. + y))
-}
-
-LambertW0 <- RTMB:::ADjoint(LambertW0_internal, dLambertW0_internal)
-```
 
 ## RTMB Tricks
 
-- If you know the derivative then you can use it instead of AD. This is important for Lambert W as we compute it numerically but have an analytically solution to the derivative!
+### ADjoint and using R functions by providing derivatives manually.
+
+- Classic example: LambertW. Remember that $W(z) = w$ solves $$z = w e^w$$. This is solved numerically in different programs but not known analytically. It makes more sense to solve the derivative as it is known, instead of building a tape on the numerical method. In this case, we will want the derivative, $\frac{dW(z)}{dz}$. From implicit differentiation (and the chain rule),
+$$
+  1 = \frac{dW(z)}{dz}e^{W(z)} + W(z)e^{W(z)}\frac{dW(z)}{dz}.
+$$
+As a result,
+$$ \frac{dW(z)}{dz} = \frac{1}{[1+W(z)]e^W(z)} = \frac{1}{z + e^{W(z)}}$$
+For the example,
+```{r, echo = TRUE}
+## Note we can just use any package function if we can provide the Jacobian.
+## In this case, y = w above and x = z. It gets recycled so you don't have to calculate it twice. The dy term is because of the AD reverse rule and needing "d/dx sum( f(x) * dy )"⁠
+lamw <- ADjoint(
+  function(x){gsl::lambert_W0(x)},
+  function(x, y, dy) {dy / (x + exp(y))}
+)
+
+F <- MakeTape(lamw, 0.1)
+#F(0.1)
+#gsl::lambert_W0(0.1)
+#F$jacobian(0.1)
+#pracma::jacobian(gsl::lambert_W0, 0.1)
+```
+
+- Here is another example using the normal distribution.
 
 ```{r, echo = TRUE}
 x <- rnorm(100, 0.25, 0.1)
@@ -538,8 +483,7 @@ fad <- MakeTape(myneg_dnorm, c(0,1))
 fad$jacobian(c(0,1)) - grtest$jacobian(c(0,1))
 ```
 
-
-- Update data without running MakeADFun or MakeTape again.
+### Update data without running MakeADFun or MakeTape again.
 
 ```{r, echo = TRUE}
 f <- function(p) {
@@ -560,13 +504,25 @@ fit1$par
 fit2$par
 ```
 
-- What about uniform distributions?
+### What AD doesn't like
 
-```{r, echo = TRUE}
-  fn <- function(theta){
-    -dunif(theta, 0, 1,log = TRUE)
-  }
-  # fnt <- MakeTape(fn, 0.5)
+- We can't condition the likelihood based on an AD variable. For example,
+
+```{r, echo = TRUE, show = 'markup', eval = FALSE}
+fn <- function(x){
+  if(x < 0) -1/2
+  else 1/5
+}
+fnt <- MakeTape(fn, 0.5)
+```
+
+### What about uniform distributions?
+
+```{r, echo = TRUE, eval = FALSE}
+fn <- function(theta){
+  -dunif(theta, 0, 1,log = TRUE)
+}
+# fnt <- MakeTape(fn, 0.5)
 ```
 
 - How can I go from uniform random variable to real scale? 
@@ -588,7 +544,7 @@ lines(density(log(u/(0.01)/(1-u/(0.01)))), col = 'red', lwd=3)
 ```
 
 
-- Non-numeric argument to mathematical function?
+### Non-numeric argument to mathematical function?
 
 One common error we will see is the Non-numeric argument to mathematical function. This happens when an `advector` is passed to an R function that is not implemented in RTMB.
 
@@ -605,7 +561,7 @@ func <- function(theta){
 attempt2 <- MakeTape(func, c(1,1))
 ```
 
-- Understanding the TAPE:
+### Understanding the TAPE:
 
 ```{r, echo = TRUE}
 func <- function(theta){
@@ -622,114 +578,57 @@ plot(G, vertex.size=17, layout=igraph::layout_as_tree)
 
 - If you are building packages in RTMB then you need to make sure that you use `ADoverload` to make sure it tracks types correctly. In this case, `"[<-" <- ADoverload("[<-")` can be placed at the beginning of a function.
 
-- STAN and RTMB interface: get the data out.
+- How can you make a function that passes data and parameters?
 
-```{r echo = TRUE, markup = "show"}
-library(tmbstan)
-fn <- function(par){
-  getAll(par, harck)
-  ## Requires stupid logistic limit trick to make sure uniform is maintained.
-  ## Didn't work in STAN...
-  ## beta <- transilogit(logbeta)*0.1 + 0    ## beta ~ uniform(0,1)
-  ## sigma <- transilogit(logsigma)*1000 + 0  ## sigma ~ uniform(0,1000)
-  ## alpha <- transilogit(logalpha)*100 + 0  ## alpha ~ uniform(0, 100)
+```{r, echo = TRUE, markup = "show"}
+## Data as explicit argument
+nll <- function(parms, y) {
+  getAll(parms)
+  -sum(dnorm(y, mean = mean, sd = sigma, log = TRUE))
+}
+cmb <- function(f, d) function(p) f(p, d) ## From Kasper... what does it do???
+obj <- RTMB::MakeADFun(cmb(nll, rnorm(100, 1, 4)), list(mean = 0, sigma = 3))
+obj$fn()
+```
+### R package example linear regression
 
-  beta <- exp(logbeta)    ## beta ~ uniform(0,1)
-  sigma <- exp(logsigma)  ## sigma ~ uniform(0,1000)
-  alpha <- exp(logalpha)  ## alpha ~ uniform(0, 100)
-
-  negll <- 0
-  ## Add prior distributions:
-  negll <- negll - log(1/0.1) - logbeta
-  negll <- negll - log(1/1000) - logsigma
-  negll <- negll - log(1/100) - logalpha
+```{r, echo = TRUE, show = "markup"}
+lm_internal <- function(pars){
+  "[<-" <- ADoverload("[<-")
+  getAll(pars)
+  sigma = exp(logsigma)
+  mu <- X %*% beta
+  ADREPORT(sigma)
   
-  Expected_logRS <- log(alpha) - beta*S
-  negll <- negll - sum(dnorm(logRS, 
-                        mean = Expected_logRS, sd = sigma, log = TRUE))
-
-  Smsy <- (1 - LambertW0(exp(1 - log(alpha))))/beta
-  umsy <- (1 - LambertW0(exp(1 - log(alpha))))
-  Sgen <-  -1/beta*LambertW0(-beta*Smsy/alpha)
-
-  REPORT(Smsy)
-  REPORT(umsy)
-  REPORT(Sgen)
-  REPORT(sigma)
-  REPORT(alpha)
-  REPORT(beta)
-  return(negll)
+  -sum(dnorm(y, mean = mu, sd = sigma, log = TRUE))
 }
 
-obj <- MakeADFun(fn, list(logbeta=0,logsigma=0, logalpha=0), silent = TRUE) ## uh oh!
-fit.map <- nlminb(obj$par, obj$fn, obj$gr)
+mylm <- function(formula, data) {
+    X <- model.matrix(formula, data)
+    pars <- list()
+    pars$beta <- rep(0, ncol(X))
+    pars$logsigma <- 0
 
-fit.stan <- tmbstan(obj, chains=1, iter = 10000, 
-  init = c(0,0,0), lower = c(-Inf, -Inf, -Inf), upper = log(c(0.1, 1000, 100)))
+    terms <- terms(formula)
+    y <- data[,as.character(terms[[2]])]
 
-## Let's get posterior samples for all our REPORTS.
-post <- as.matrix(fit.stan)
-report <- obj$report()
-post.report <- matrix(0,  nrow = nrow(post), ncol = length(report))
-colnames(post.report) <- names(report)
-for( i in 1:nrow(post) )
-    post.report[i,] <- do.call('c', 
-        obj$report(post[i,seq_along(obj$par)]))
-
-summary(coda::mcmc(post.report))
-```
-
-```{r echo = FALSE}
-transilogit <- MakeTape(function(x){1/(1+exp(-x))}, 0)
-
-fn <- function(par){
-  getAll(par, harck)
-  ## Requires stupid logistic limit trick to make sure uniform is maintained.
-  ## Didn't work in STAN...
-  beta <- transilogit(logbeta)*0.1 + 0    ## beta ~ uniform(0,0.1)
-  sigma <- transilogit(logsigma)*1000 + 0  ## sigma ~ uniform(0,1000)
-  alpha <- transilogit(logalpha)*100 + 0   ## alpha ~ uniform(0, 100)
-
-  negll <- 0
-  ## Add prior distribution
-  negll <- negll - log(abs(transilogit$jacobian(logbeta)))
-  negll <- negll - log(abs(transilogit$jacobian(logsigma)))
-  negll <- negll - log(abs(transilogit$jacobian(logalpha)))
-
-  Expected_logRS <- log(alpha) - beta*S
-  negll <- negll - sum(dnorm(logRS, 
-                        mean = Expected_logRS, sd = sigma, log = TRUE))
-
-  Smsy <- (1 - LambertW0(exp(1 - log(alpha))))/beta
-  umsy <- (1 - LambertW0(exp(1 - log(alpha))))
-  Sgen <-  -1/beta*LambertW0(-beta*Smsy/alpha)
-
-  REPORT(Smsy)
-  REPORT(umsy)
-  REPORT(Sgen)
-  REPORT(sigma)
-  REPORT(alpha)
-  REPORT(beta)
-  return(negll)
+    data <- local({X <- X; y <- y; environment()})
+    environment(lm_internal) <- data
+    obj <- MakeADFun(lm_internal, pars, silent = TRUE)
+    opt <- nlminb(obj$par, obj$fn, obj$gr)
+    rep <- sdreport(obj)
+    return(rep)
 }
 
-obj <- MakeADFun(fn, list(logbeta=0,logsigma=0, logalpha=0), silent = TRUE) ## uh oh!
-fit.map <- nlminb(obj$par, obj$fn, obj$gr)
-obj$report()
-
-fit.stan <- tmbstan(obj, chains=1, iter = 10000, init = c(0,0,0))
-traceplot(fit.stan, pars=names(obj$par), inc_warmup=TRUE)
-
-## Let's get posterior samples for all our REPORTS.
-post <- as.matrix(fit.stan)
-report <- obj$report()
-post.report <- matrix(0,  nrow = nrow(post), ncol = length(report))
-colnames(post.report) <- names(report)
-for( i in 1:nrow(post) )
-    post.report[i,] <- do.call('c', 
-        obj$report(post[i,seq_along(obj$par)]))
-
-summary(coda::mcmc(post.report))
+mylm(weight ~ Time + Diet, data = ChickWeight)
 ```
+
+### RTMB Practice
+
+- Write an auto regressive process for the `harck` data in RTMB.
+- Calculate and generate confidence intervals for maximum sustainable yield ( $S_{msy}$ ) and for the number of spawners needed to return to $S_{msy}$ in one generation, $S_{gen}$.
+
+- Example: https://github.com/Pacific-salmon-assess/samEst/blob/main/R/LamW_RTMB.r
+
 
 

@@ -18,7 +18,7 @@ knitr_opts <- list(
   dpi = 300,
   out.width = "700px",
   fig.asp = 1 / 1.618,
-  cache = TRUE,
+  cache = FALSE,
   autodep = TRUE,
   cache.comments = TRUE,
   fig.align = "center",
